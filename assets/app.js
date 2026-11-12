@@ -3,630 +3,546 @@
 
   const examples = window.SECOND_HOP_EXAMPLES;
   const records = window.SECOND_HOP_PIPELINE;
-  const { families, articleURL, describeLink } = window.SECOND_HOP_LINKS;
-  const { budgets, prepare, run } = window.SECOND_HOP_RETRIEVAL;
+  const { families, articleURL, otherEnd, terms, explanation, highlights } = window.SECOND_HOP_LINKS;
+  const { budgets, prepare, run, neighbourhood } = window.SECOND_HOP_RETRIEVAL;
   const byId = id => document.getElementById(id);
-  const number = new Intl.NumberFormat("en-US");
-  const percent = new Intl.NumberFormat("en-US", { style: "percent", maximumFractionDigits: 2 });
-  const scoreText = score => score.toFixed(4);
-  const rankText = rank => rank ? "#" + number.format(rank) : "—";
-
+  const format = new Intl.NumberFormat("en-US").format;
+  const percent = new Intl.NumberFormat("en-US", { style: "percent", maximumFractionDigits: 2 }).format;
+  const rank = value => value ? "#" + format(value) : "—";
+  const motion = matchMedia("(prefers-reduced-motion: reduce)");
   const chooseDataset = byId("flow-dataset-select");
   const chooseCase = byId("flow-case");
-  const budgetControl = byId("flow-budget");
-  const boostControl = byId("flow-boost");
-  const familyControls = [...document.querySelectorAll("input[data-family]")];
-  const stepButtons = [...document.querySelectorAll("[data-stage]")];
-  const panels = [...document.querySelectorAll("[data-flow-panel]")];
-  const stages = stepButtons.map(button => button.dataset.stage);
-  const stageLabels = ["Corpus", "Search", "Links", "Shortlist", "Top five"];
-  const sceneTitles = ["The search space", "First search", "Follow the links", "The shortlist", "Final top five"];
-  const surface = byId("flow-surface");
-  const visual = byId("flow-visual");
-  const settings = byId("flow-settings");
-  const tune = byId("flow-tune");
-  const play = byId("flow-play");
-  const back = byId("flow-back");
-  const next = byId("flow-next");
-  const scrub = byId("flow-scrub");
-  const evidence = byId("evidence");
+  const budget = byId("flow-budget");
+  const depth = byId("graph-depth");
+  const boost = byId("flow-boost");
+  const familyButtons = new Map();
+  const panelButtons = [...document.querySelectorAll("[data-panel]")];
   const research = byId("research");
   const archivePanes = [...document.querySelectorAll("[data-research-pane]")];
   const archiveButtons = [...document.querySelectorAll("[data-archive-target]")];
+  const find = byId("passage-find");
   const traces = new Map();
-  const textRequests = new Map();
+  const texts = new Map();
   const exclusions = new Map();
-  const motion = window.matchMedia("(prefers-reduced-motion: reduce)");
-
-  const params = new URLSearchParams(window.location.search);
-  const initialCase = examples.find(example => example.id === params.get("case")) ?? examples[0];
+  const params = new URLSearchParams(location.search);
+  const initial = examples.find(example => example.id === params.get("case")) ?? examples[0];
+  const enabled = new Set(params.has("links") && /^[SRNK]*$/.test(params.get("links")) ? params.get("links") : Object.keys(families));
   if (params.has("skip")) {
     const ids = params.get("skip").split(",").filter(id => /^\d+$/.test(id)).map(Number);
-    exclusions.set(initialCase.id, new Set(ids));
+    exclusions.set(initial.id, new Set(ids));
   }
 
-  function stageFromHash() {
-    const fragment = window.location.hash.slice(1);
-    const stage = fragment === "shortlist" ? "pool" : fragment;
-    return stages.indexOf(stage);
-  }
-
-  let position = Math.max(0, stageFromHash());
-  let activeStep = -1;
-  let sample;
-  let trace;
-  let result;
-  let loadId = 0;
-  let timer = 0;
-  let frame = 0;
-  let playing = false;
-  let boosted = true;
-  let showAllHits = false;
-  let currentPassage;
-  let preview = [];
-
+  let panel = ["#lab", "#rankers"].includes(location.hash) ? location.hash.slice(1) : "inspect";
+  let shrunk = params.has("pool") ? params.get("pool") === "1" : ["#pool", "#shortlist", "#rankers"].includes(location.hash);
+  let paused = motion.matches;
+  let showHeat = true;
+  let sample, trace, result, graph, selection;
+  let loadSequence = 0;
+  let allSeeds = false;
+  let allConnections = false;
+  let searchMatches = [];
   const scene = window.SECOND_HOP_SCENE(byId("pipeline-canvas"), {
-    inspect: id => openPassage(id),
-    inspectLink: (route, type) => openPassage(route.to.id, route, type),
-    pause: stopReplay,
+    node: id => inspectNode(id),
+    edge: (edge, type) => inspectEdge(edge, type),
+    clear: () => {
+      if (!selection) return;
+      selection = { id: selection.id, focused: false };
+      renderInspector();
+    },
   });
 
   function el(tag, className, text) {
-    const element = document.createElement(tag);
-    if (className) element.className = className;
-    if (text !== undefined) element.textContent = text;
-    return element;
-  }
-
-  function enabledFamilies() {
-    return familyControls.filter(input => input.checked && !input.disabled).map(input => input.dataset.family);
-  }
-
-  function excludedSeeds() {
-    return exclusions.get(sample.id);
-  }
-
-  function selectedRanking() {
-    return boosted ? result.boosted : result.base;
-  }
-
-  function writeLocation(step) {
-    const url = new URL(window.location.href);
-    url.searchParams.set("case", sample.id);
-    url.searchParams.set("budget", budgetControl.value);
-    url.searchParams.set("links", familyControls.filter(input => input.checked).map(input => input.dataset.family).join(""));
-    url.searchParams.set("boost", boostControl.value);
-    if (excludedSeeds().size) url.searchParams.set("skip", [...excludedSeeds()].join(","));
-    else url.searchParams.delete("skip");
-    if (step !== undefined) url.hash = stages[step];
-    history.replaceState(null, "", url);
-  }
-
-  function renderTransport() {
-    back.disabled = !result || position <= 0;
-    next.disabled = !result || position >= stages.length - 1;
-    play.disabled = scrub.disabled = !result;
-    if (play.dataset.playing !== String(playing)) play.dataset.playing = String(playing);
-    const label = playing ? "Pause pipeline" : position >= stages.length - 1 ? "Replay pipeline" : "Play pipeline";
-    if (play.textContent !== label) play.textContent = label;
-  }
-
-  function legendItem(label, color, type) {
-    const item = el("span", "", label);
-    item.prepend(el("i"));
-    item.style.setProperty("--key", color);
-    if (type) item.dataset.line = type;
+    const item = document.createElement(tag);
+    if (className) item.className = className;
+    if (text !== undefined) item.textContent = text;
     return item;
   }
 
-  function renderSceneCaption(index) {
-    if (!result) return;
-    const { seeds, hits, size, support } = result;
-    const kept = selectedRanking().filter(entry => entry.node.supporting).length;
-    const n = number.format;
-    const counts = [
-      n(trace.corpus) + " passages",
-      n(seeds.length) + " of " + n(hits.length) + " hits used",
-      "+" + n(size - seeds.length) + " linked neighbours",
-      n(size) + " of " + n(trace.corpus) + " passages",
-      kept + " of " + trace.support.length + " supporting passages",
-    ];
-    const notes = [
-      "Play or scrub to follow the search through this corpus sample.",
-      "Word and meaning ranks converge. Choose which hits become seeds below.",
-      "Drag a passage or the background. Click a dot or a connection to inspect it.",
-      percent.format(size / trace.corpus) + " of the original search space. " + support + " supporting passages reached the shortlist.",
-      "Compare fused score and link boost to see what moves into the top five.",
-    ];
-    byId("scene-title").textContent = sceneTitles[index];
-    byId("scene-count").textContent = counts[index];
-    byId("scene-note").textContent = notes[index];
-    const legend = byId("scene-legend");
-    const nodeKeys = [legendItem("Search hit", "#ffce8d"), legendItem("Linked passage", "#bbabff")];
-    const focusedFamily = document.activeElement?.dataset.sceneFamily;
-    const linkKeys = familyControls.map(control => {
-      const type = control.dataset.family;
-      const item = legendItem(families[type].label, families[type].color, type);
-      const button = el("button");
-      button.type = "button";
-      button.dataset.sceneFamily = type;
-      button.disabled = control.disabled;
-      button.setAttribute("aria-pressed", String(control.checked && !control.disabled));
-      button.title = (control.checked ? "Remove " : "Add ") + families[type].title.toLowerCase();
-      button.append(item);
-      button.addEventListener("click", () => {
-        control.checked = !control.checked;
-        applySettings();
+  function button(className, text, activate) {
+    const item = el("button", className, text);
+    item.type = "button";
+    if (activate) item.addEventListener("click", activate);
+    return item;
+  }
+
+  function activeFamilies() {
+    return [...enabled].filter(type => type !== "S" || sample.dataset !== "MuSiQue");
+  }
+
+  function selectPanel(id, store = true) {
+    panel = id;
+    for (const control of panelButtons) {
+      const active = control.dataset.panel === id;
+      control.setAttribute("aria-pressed", String(active));
+      byId(control.dataset.panel).hidden = !active;
+    }
+    if (store && trace) writeURL();
+  }
+
+  function writeURL() {
+    const url = new URL(location.href);
+    url.searchParams.set("case", sample.id);
+    url.searchParams.set("budget", budget.value);
+    url.searchParams.set("depth", depth.value);
+    url.searchParams.set("links", Object.keys(families).filter(type => enabled.has(type)).join(""));
+    url.searchParams.set("boost", boost.value);
+    if (shrunk) url.searchParams.set("pool", "1");
+    else url.searchParams.delete("pool");
+    const skipped = exclusions.get(sample.id);
+    if (skipped.size) url.searchParams.set("skip", [...skipped].join(","));
+    else url.searchParams.delete("skip");
+    url.hash = panel === "inspect" ? (shrunk ? "pool" : "links") : panel;
+    history.replaceState(null, "", url);
+  }
+
+  async function json(path) {
+    const response = await fetch(path);
+    if (!response.ok) throw new Error(path + " HTTP " + response.status);
+    return response.json();
+  }
+
+  function loadTexts(example, prepared) {
+    if (!texts.has(example.id)) {
+      const request = json("assets/passages/" + example.id + ".json?v=2").then(data => {
+        for (const [id, text] of Object.entries(data.text)) prepared.passages.get(Number(id)).text = text;
+        prepared.names = data.names;
+        prepared.fullText = true;
+      }).catch(() => {
+        prepared.textError = true;
+        texts.delete(example.id);
       });
-      return button;
-    });
-    legend.replaceChildren(...(index === 2 ? linkKeys : index >= 3 ? nodeKeys : []));
-    if (focusedFamily) legend.querySelector('[data-scene-family="' + focusedFamily + '"]')?.focus({ preventScroll: true });
-  }
-
-  function renderStep(index) {
-    if (!result || activeStep === index) return;
-    activeStep = index;
-    for (const panel of panels) panel.hidden = panel.id !== stages[index];
-    for (const button of stepButtons) {
-      button.disabled = false;
-      if (button.dataset.stage === stages[index]) button.setAttribute("aria-current", "step");
-      else button.removeAttribute("aria-current");
+      texts.set(example.id, request);
     }
-    byId("flow-stage-status").textContent = "Step " + (index + 1) + " of " + stages.length + ": " + stageLabels[index];
-    scrub.setAttribute("aria-valuetext", stageLabels[index]);
-    renderSceneCaption(index);
-    if (index === 2) {
-      document.dispatchEvent(new Event("secondhop:replay-link"));
-      loadPassages(sample, trace).catch(() => {});
+    return texts.get(example.id);
+  }
+
+  async function load(id, store = true) {
+    const sequence = ++loadSequence;
+    const previous = sample;
+    sample = examples.find(example => example.id === id) ?? examples[0];
+    const example = sample;
+    chooseDataset.value = example.dataset;
+    if (previous?.dataset !== example.dataset) {
+      chooseCase.replaceChildren(...examples.filter(item => item.dataset === example.dataset).map(item => new Option(item.label, item.id)));
     }
-  }
-
-  function setPosition(value) {
-    position = value;
-    scrub.value = String(value);
-    scene.setPosition(value);
-    renderStep(Math.round(value));
-    renderTransport();
-  }
-
-  function stopReplay() {
-    clearTimeout(timer);
-    cancelAnimationFrame(frame);
-    timer = frame = 0;
-    playing = false;
-    renderTransport();
-  }
-
-  function glideTo(target, duration, done) {
-    const from = position;
-    if (from === target || motion.matches) {
-      setPosition(target);
-      done();
-      return;
-    }
-    let started;
-    const advance = now => {
-      started ??= now;
-      const progress = Math.min(1, (now - started) / duration);
-      setPosition(progress === 1 ? target : from + (target - from) * progress);
-      if (progress < 1) frame = requestAnimationFrame(advance);
-      else {
-        frame = 0;
-        done();
+    chooseCase.value = example.id;
+    byId("flow-question").textContent = example.question;
+    if (!exclusions.has(example.id)) exclusions.set(example.id, new Set());
+    if (previous && previous !== example) shrunk = false;
+    trace = result = graph = selection = undefined;
+    allSeeds = allConnections = false;
+    find.value = "";
+    byId("graph-workspace").hidden = true;
+    byId("graph-loading").hidden = false;
+    byId("graph-error").hidden = true;
+    byId("pipeline").setAttribute("aria-busy", "true");
+    if (store) writeURL();
+    try {
+      if (!traces.has(example.id)) {
+        const snapshot = await json("assets/traces/" + example.id + ".json?v=2");
+        const prepared = prepare(example, records[example.id], snapshot);
+        prepared.names = Object.fromEntries(Object.entries(records[example.id].linkDetails).map(([key, info]) => [key, info.names]));
+        traces.set(example.id, prepared);
       }
-    };
-    frame = requestAnimationFrame(advance);
-  }
-
-  function playStages() {
-    if (playing) {
-      stopReplay();
-      return;
-    }
-    if (!result) return;
-    stopReplay();
-    if (position >= stages.length - 1) setPosition(0);
-    playing = true;
-    setSettings(false);
-    renderTransport();
-    const advance = () => {
-      const atStop = Number.isInteger(position);
-      const to = Math.floor(position) + 1;
-      const pause = atStop ? [650, 1600, 2450, 1300][position] : 0;
-      timer = window.setTimeout(() => {
-        const duration = [1400, 1900, 1700, 1700][to - 1] * (to - position);
-        glideTo(to, duration, () => {
-          writeLocation(to);
-          if (to >= stages.length - 1) stopReplay();
-          else advance();
-        });
-      }, pause);
-    };
-    advance();
-  }
-
-  function setSettings(open) {
-    settings.hidden = !open;
-    tune.setAttribute("aria-expanded", String(open));
-  }
-
-  function navigateTo(index, animate = true, done = () => {}) {
-    if (!result || index < 0 || index >= stages.length) return;
-    stopReplay();
-    const finish = () => {
-      writeLocation(index);
-      done();
-    };
-    if (animate) glideTo(index, Math.min(2600, 980 * Math.abs(position - index)), finish);
-    else {
-      setPosition(index);
-      finish();
+      if (sequence !== loadSequence) return;
+      trace = traces.get(example.id);
+      byId("graph-workspace").hidden = false;
+      selectPanel(panel, false);
+      renderGraph(true);
+      document.dispatchEvent(new CustomEvent("secondhop:state", { detail: { sample } }));
+      loadTexts(example, trace).then(() => { if (sequence === loadSequence) renderInspector(); });
+    } catch (error) {
+      if (sequence !== loadSequence) return;
+      byId("graph-workspace").hidden = true;
+      byId("graph-error").hidden = false;
+      console.error(error);
+    } finally {
+      if (sequence === loadSequence) {
+        byId("graph-loading").hidden = true;
+        byId("pipeline").setAttribute("aria-busy", "false");
+      }
     }
   }
 
-  function rowFor(node, { position: rowPosition, detail, value, seed = false } = {}) {
-    const row = el("li", "flow-row");
-    const button = el("button", "flow-row-button");
-    const name = el("span", "flow-row-copy");
-    button.type = "button";
-    if (rowPosition !== undefined) button.append(el("span", "flow-row-position", rowPosition));
-    name.append(el("strong", "", node.title), el("small", "", detail));
-    button.append(name);
-    if (value !== undefined) button.append(el("span", "flow-row-value", value));
-    if (node.supporting) button.append(el("span", "flow-support-chip", "Supporting"));
-    button.addEventListener("click", () => openPassage(node.id));
-    row.append(button);
-    if (seed) {
-      const label = el("label", "seed-check");
-      const control = el("input");
-      control.type = "checkbox";
-      control.checked = result.seedIds.has(node.id);
-      control.dataset.seed = node.id;
-      control.setAttribute("aria-label", "Use " + node.title + " as a seed");
-      control.addEventListener("change", () => toggleSeed(node.id));
-      label.append(control, el("span", "", "Seed"));
-      row.append(label);
+  function renderGraph(fresh = false) {
+    if (!trace) return;
+    const n = Number(budget.value);
+    if (Number(depth.value) < n) depth.value = budget.value;
+    for (const option of depth.options) option.disabled = Number(option.value) < n;
+    const types = activeFamilies();
+    result = run(trace, n, types, Number(boost.value), exclusions.get(sample.id));
+    graph = neighbourhood(trace, Number(depth.value), types, result, shrunk);
+    if (!selection || !graph.ids.has(selection.id)) {
+      const id = result.seeds[0]?.id ?? graph.nodes[0]?.id;
+      selection = id === undefined ? null : { id, focused: false };
     }
+    scene.show(graph, result, { fresh, shrunk });
+    const edges = graph.pairs.filter(pair => pair.active.length).length;
+    const size = graph.nodes.length;
+    byId("graph-title").textContent = shrunk ? "Candidate pool" : "Search neighbourhood";
+    byId("graph-scope").textContent = shrunk ? format(size) + " of " + format(graph.scope) + " passages kept · " + result.support + "/" + trace.support.length + " supporting"
+      : depth.value + " search hits + neighbours · " + format(result.size) + " in the shortlist";
+    byId("graph-nodes").textContent = format(size);
+    byId("graph-edges").textContent = format(edges);
+    byId("graph-density").textContent = percent(size > 1 ? 2 * edges / (size * (size - 1)) : 0);
+    byId("graph-empty").hidden = Boolean(size);
+    byId("graph-hint").textContent = edges > 4500 ? "Select a passage to see every link attached to it. Drag nodes or the background to explore."
+      : "Drag a passage or the background. Click a dot or a line to inspect it.";
+    const shrink = byId("graph-shrink");
+    shrink.setAttribute("aria-pressed", String(shrunk));
+    shrink.textContent = shrunk ? "Restore cluster ↗" : "Shrink pool ↘";
+    for (const [type, { control, count }] of familyButtons) {
+      const available = type !== "S" || sample.dataset !== "MuSiQue";
+      const recorded = graph.pairs.filter(pair => pair.types.includes(type)).length;
+      control.disabled = !available;
+      control.setAttribute("aria-pressed", String(available && enabled.has(type)));
+      control.title = available ? format(recorded) + " recorded " + families[type].title.toLowerCase() : "This dataset does not preserve article hyperlinks";
+      count.textContent = format(recorded);
+    }
+    renderInspector();
+    renderSearch();
+    renderRanking();
+    renderFind();
+  }
+
+  function rowFor(node, detail, action, types = []) {
+    const row = el("li");
+    const item = button("passage-row", undefined, action);
+    const copy = el("span");
+    copy.append(el("strong", "", node.title));
+    if (detail) copy.append(el("small", "", detail));
+    item.append(copy);
+    if (types.length) {
+      const swatches = el("span", "edge-swatches");
+      swatches.setAttribute("aria-label", types.map(type => families[type].label).join(", "));
+      for (const type of types) {
+        const dot = el("i");
+        dot.style.setProperty("--edge", families[type].color);
+        swatches.append(dot);
+      }
+      item.append(swatches);
+    }
+    row.append(item);
     return row;
   }
 
-  function renderSearch() {
-    const { hits, seeds } = result;
-    const rows = byId("search-rows");
-    const focusedSeed = document.activeElement?.dataset.seed;
-    const searchAll = byId("search-all");
-    const searchReset = byId("search-reset");
-    searchAll.hidden = hits.length <= 5;
-    searchAll.textContent = showAllHits ? "Show fewer hits" : "Show all " + hits.length + " hits";
-    searchAll.setAttribute("aria-expanded", String(showAllHits && hits.length > 5));
-    searchReset.hidden = seeds.length === hits.length;
-    byId("search-summary").textContent = seeds.length + " of " + hits.length + " fused search hits are active seeds. Uncheck a hit to see what it was adding.";
-    rows.replaceChildren(...(showAllHits ? hits : preview).map(node => rowFor(node, {
-      position: rankText(node.rank),
-      detail: "Words " + rankText(node.words) + " · Meaning " + rankText(node.meaning),
-      value: scoreText(node.score),
-      seed: true,
-    })));
-    if (focusedSeed) rows.querySelector('[data-seed="' + focusedSeed + '"]')?.focus({ preventScroll: true });
+  function inspectNode(id, locate = false) {
+    if (!graph?.ids.has(id)) return;
+    selection = { id, focused: true };
+    allConnections = false;
+    selectPanel("inspect");
+    renderInspector();
+    if (locate) scene.locate(id);
   }
 
-  function renderResults() {
-    const ranking = selectedRanking();
-    const kept = ranking.filter(entry => entry.node.supporting).length;
-    byId("step-results").textContent = kept + "/" + trace.support.length;
-    byId("finish-summary").textContent = ranking.length ? kept + " of " + trace.support.length + " supporting passages made the cut." : "Choose a seed in Search to rank passages.";
-    byId("finish-base").setAttribute("aria-pressed", String(!boosted));
-    byId("finish-boosted").setAttribute("aria-pressed", String(boosted));
-    byId("finish-rows").replaceChildren(...ranking.map(({ node, total }, index) => {
-      const path = result.origins.get(node.id);
-      const detail = path ? "Linked from " + path.from.title + " (" + rankText(path.from.rank) + ")" : "Search hit " + rankText(node.rank);
-      return rowFor(node, { position: String(index + 1), detail, value: scoreText(boosted ? total : node.score) });
-    }));
+  function inspectEdge(edge, type, keepEnd = false) {
+    const focusNode = [edge.a, edge.b].find(node => node.id === selection?.id);
+    const ends = focusNode ? [focusNode, otherEnd(edge, focusNode)] : [edge.a, edge.b];
+    const node = (keepEnd && focusNode) || ends.find(item => terms(edge, type, item, trace.names).length) || ends[0];
+    selection = { id: node.id, edge: edge.key, type, focused: true };
+    allConnections = false;
+    selectPanel("inspect");
+    renderInspector();
   }
 
-  function renderWalkthrough(animate = true) {
-    if (!trace) return;
-    const enabled = enabledFamilies();
-    const boost = Number(boostControl.value);
-    result = run(trace, Number(budgetControl.value), enabled, boost, excludedSeeds());
-    const { hits, seeds, size, support, origins, seedIds } = result;
-    const added = size - seeds.length;
-    byId("flow-boost-value").textContent = boost + "×";
-    byId("step-corpus").textContent = number.format(trace.corpus);
-    byId("step-search").textContent = number.format(seeds.length);
-    byId("step-links").textContent = "+" + number.format(added);
-    byId("step-pool").textContent = number.format(size);
-    byId("corpus-detail").textContent = sample.dataset + " supplies the recorded corpus and question. Search combines the saved word and meaning ranks with reciprocal rank fusion.";
-    preview = hits.length <= 5 ? hits : [...hits.slice(0, 4), hits.at(-1)];
-    renderSearch();
-    byId("link-stage-summary").textContent = number.format(seeds.length) + " seeds added " + number.format(added) + " unique neighbours.";
-    byId("pool-summary").textContent = percent.format(size / trace.corpus) + " of the corpus, with " + support + " of " + trace.support.length + " supporting passages.";
-    byId("pool-corpus-total").textContent = number.format(trace.corpus) + " passages";
-    byId("pool-share-bar").style.width = 100 * size / trace.corpus + "%";
-    byId("pool-seed-bar").style.width = (size ? 100 * seeds.length / size : 0) + "%";
-    byId("pool-linked-bar").style.width = (size ? 100 * added / size : 0) + "%";
-    byId("pool-seed-total").textContent = number.format(seeds.length);
-    byId("pool-linked-total").textContent = number.format(added);
-    byId("pool-total").textContent = number.format(size);
-    byId("pool-rows").replaceChildren(...trace.support.map(node => {
-      const path = origins.get(node.id);
-      const detail = seedIds.has(node.id) ? "Search hit " + rankText(node.rank) : path
-        ? "Via " + path.from.title + " (" + rankText(path.from.rank) + ")" : "Outside the shortlist";
-      return rowFor(node, { detail });
-    }));
-    renderResults();
-    renderSceneCaption(Math.round(position));
-    scene.update(result, selectedRanking(), preview, animate);
-    document.dispatchEvent(new CustomEvent("secondhop:state", { detail: { sample, families: enabled, result, names: trace.names } }));
-    if (evidence.open && currentPassage) renderPassage();
-  }
-
-  async function loadExample(id, updateUrl = true) {
-    const requestId = ++loadId;
-    stopReplay();
-    const previous = sample;
-    sample = examples.find(example => example.id === id) ?? examples[0];
-    chooseDataset.value = sample.dataset;
-    if (previous?.dataset !== sample.dataset) {
-      chooseCase.replaceChildren(...examples.filter(example => example.dataset === sample.dataset).map(example => new Option(example.label, example.id)));
-    }
-    chooseCase.value = sample.id;
-    if (!exclusions.has(sample.id)) exclusions.set(sample.id, new Set());
-    if (previous !== sample) {
-      showAllHits = false;
-      scene.reset();
-    }
-    trace = result = null;
-    activeStep = -1;
-    familyControls.find(input => input.dataset.family === "S").disabled = sample.dataset === "MuSiQue";
-    byId("flow-dataset").textContent = sample.dataset;
-    byId("flow-question").textContent = sample.question;
-    byId("flow-loading").hidden = false;
-    byId("flow-error").hidden = true;
-    surface.setAttribute("aria-busy", "true");
-    visual.hidden = true;
-    for (const panel of panels) panel.hidden = true;
-    for (const button of stepButtons) button.disabled = true;
-    for (const id of ["step-corpus", "step-search", "step-links", "step-pool", "step-results"]) byId(id).textContent = "—";
-    renderTransport();
-    if (updateUrl) writeLocation();
-    try {
-      const slug = sample.id;
-      const example = sample;
-      if (!traces.has(slug)) {
-        const response = await fetch("assets/traces/" + slug + ".json");
-        if (!response.ok) throw new Error("Trace HTTP " + response.status);
-        traces.set(slug, prepare(example, records[slug], await response.json()));
-      }
-      if (requestId !== loadId) return;
-      trace = traces.get(slug);
-      visual.hidden = false;
-      renderWalkthrough(false);
-      setPosition(position);
-      if (!updateUrl) openHash();
-    } catch (error) {
-      if (requestId !== loadId) return;
-      trace = result = null;
-      visual.hidden = true;
-      for (const panel of panels) panel.hidden = true;
-      renderTransport();
-      byId("flow-error").hidden = false;
-      console.error(error);
-    } finally {
-      if (requestId === loadId) {
-        byId("flow-loading").hidden = true;
-        surface.setAttribute("aria-busy", "false");
+  function phraseIndex(node, connections) {
+    const phrases = new Map();
+    for (const edge of connections) {
+      for (const type of edge.active) {
+        for (const phrase of terms(edge, type, node, trace.names)) {
+          const key = phrase.toLowerCase();
+          if (!phrases.has(key)) phrases.set(key, { phrase, routes: new Map() });
+          const routes = phrases.get(key).routes;
+          if (!routes.has(edge.key)) routes.set(edge.key, new Set());
+          routes.get(edge.key).add(type);
+        }
       }
     }
+    return phrases;
   }
 
-  function loadPassages(example, preparedTrace) {
-    if (preparedTrace.fullText) return Promise.resolve();
-    const slug = example.id;
-    if (!textRequests.has(slug)) {
-      const request = fetch("assets/passages/" + slug + ".json").then(response => {
-        if (!response.ok) throw new Error("Passages HTTP " + response.status);
-        return response.json();
-      }).then(data => {
-        for (const [id, text] of Object.entries(data.text)) preparedTrace.passages.get(Number(id)).text = text;
-        preparedTrace.names = data.names;
-        preparedTrace.fullText = true;
-        document.dispatchEvent(new CustomEvent("secondhop:passages", { detail: { sample: example, names: data.names } }));
-      }).finally(() => textRequests.delete(slug));
-      textRequests.set(slug, request);
+  function renderPassageText(node, phrases) {
+    const body = byId("inspect-body");
+    const focused = document.activeElement?.dataset.term;
+    if (!node.text) {
+      body.textContent = trace.textError ? "The saved passage didn’t load. Open its Wikipedia page below." : "Loading the benchmark passage…";
+      return;
     }
-    return textRequests.get(slug);
+    const text = node.text;
+    const spans = highlights(text, Array.from(phrases, ([key, info]) => [key, info.phrase]));
+    const contents = [];
+    let cursor = 0;
+    for (const { key, start, end } of spans) {
+      contents.push(text.slice(cursor, start));
+      const term = button("evidence-term", text.slice(start, end), () => {
+        selection.term = selection.term === key ? undefined : key;
+        selection.edge = selection.type = undefined;
+        selection.focused = true;
+        allConnections = false;
+        renderInspector();
+      });
+      term.dataset.term = key;
+      term.title = "Trace this phrase to connected passages";
+      term.setAttribute("aria-pressed", String(selection.term === key));
+      contents.push(term);
+      cursor = end;
+    }
+    contents.push(text.slice(cursor));
+    body.replaceChildren(...contents);
+    if (focused) [...body.querySelectorAll("[data-term]")].find(term => term.dataset.term === focused)?.focus({ preventScroll: true });
   }
 
-  function passageLinks(id) {
-    return result.routes.filter(route => route.to.id === id || route.from.id === id);
-  }
-
-  function currentRoute(node, options) {
-    if (currentPassage.key === "") return null;
-    return options.find(route => route.key === currentPassage.key) ?? result.origins.get(node.id);
-  }
-
-  function renderPassage() {
-    const { id, family } = currentPassage;
-    const node = trace.passages.get(id);
-    const origin = result.origins.get(id);
-    const options = passageLinks(id);
-    const path = currentRoute(node, options);
-    const rank = selectedRanking().findIndex(entry => entry.node.id === id);
-    const bonus = boosted ? (origin?.strength ?? 0) * Number(boostControl.value) : 0;
-    const seeded = result.seedIds.has(id);
-    const seedOption = result.hits.some(hit => hit.id === id);
-    byId("passage-kind").textContent = node.supporting ? "Supporting passage" : "Benchmark passage";
-    byId("passage-title").textContent = node.title;
-    byId("passage-text").textContent = node.text ?? "Loading the benchmark passage…";
-    byId("signal-words").textContent = rankText(node.words);
-    byId("signal-meaning").textContent = rankText(node.meaning);
-    byId("signal-fused").textContent = rankText(node.rank);
-    byId("passage-path").textContent = seeded ? "Started as search hit " + rankText(node.rank) + "."
-      : origin ? "Entered the shortlist through " + origin.from.title + " (" + rankText(origin.from.rank) + ")."
-      : "Outside this shortlist.";
-    byId("passage-score").textContent = "Fused score " + scoreText(node.score) + " · Link bonus " + scoreText(bonus) +
-      (rank >= 0 ? " · Final rank #" + (rank + 1) : "");
-    byId("passage-source").href = articleURL(node.title);
-    byId("passage-trace").hidden = !path;
-    const seedButton = byId("passage-seed");
-    seedButton.hidden = !seedOption;
-    seedButton.textContent = seeded ? "Remove seed" : "Use as seed";
-
-    const routeControl = byId("passage-route");
-    byId("passage-route-label").hidden = !options.length;
-    routeControl.replaceChildren(new Option("Choose a connection", ""), ...options.map(route => {
-      const label = route.from.id === id ? "To " + route.to.title : "From " + route.from.title;
-      return new Option(label + (route.active.length ? "" : " (disabled)"), route.key);
-    }));
-    routeControl.value = path?.key ?? "";
-    const types = path ? [...path.types] : [];
-    if (family && types.includes(family)) types.unshift(...types.splice(types.indexOf(family), 1));
-    byId("passage-links").replaceChildren(...types.map(type => {
-      const detail = el("div", "passage-link-detail");
-      detail.style.setProperty("--wire", families[type].color);
-      const { explanation, quote } = describeLink(sample, path.from, path.to, type, path.cosine, trace.names?.[path.key]);
-      detail.append(el("strong", "", families[type].label + (path.active.includes(type) ? "" : " · disabled")), el("p", "", explanation));
-      if (quote) detail.append(quote);
-      return detail;
-    }));
-  }
-
-  function openPassage(id, path, family) {
-    if (!trace?.passages.has(id)) return;
-    stopReplay();
-    if (research.open) research.close();
-    const opened = { id, key: path?.key, family };
-    currentPassage = opened;
-    renderPassage();
-    if (!evidence.open) evidence.showModal();
-    evidence.scrollTop = 0;
-    loadPassages(sample, trace).then(() => {
-      if (evidence.open && currentPassage === opened) renderPassage();
-    }).catch(() => {
-      if (evidence.open && currentPassage === opened && !trace.passages.get(id).text) {
-        byId("passage-text").textContent = "The benchmark passage couldn’t load. You can open the Wikipedia article below.";
+  function renderEdge(edge, node) {
+    const details = byId("inspect-edge");
+    details.hidden = !edge;
+    if (!edge) return;
+    const type = edge.active.includes(selection.type) ? selection.type : edge.active[0];
+    selection.type = type;
+    details.style.setProperty("--edge", families[type].color);
+    const heading = el("strong", "", families[type].label);
+    const reason = el("p", "", explanation(edge, type, trace.names));
+    const endpoints = el("div", "inspect-edge-actions");
+    for (const endpoint of [edge.a, edge.b]) {
+      const option = button("", endpoint.title, () => {
+        selection.id = endpoint.id;
+        renderInspector();
+      });
+      option.setAttribute("aria-pressed", String(endpoint.id === node.id));
+      endpoints.append(option);
+    }
+    const options = el("div", "inspect-edge-actions");
+    if (edge.active.length > 1) {
+      for (const family of edge.active) {
+        const option = button("", families[family].label, () => inspectEdge(edge, family));
+        option.setAttribute("aria-pressed", String(family === type));
+        options.append(option);
       }
+    }
+    details.replaceChildren(heading, reason, endpoints, options);
+  }
+
+  function renderInspector() {
+    if (!graph) return;
+    const entry = selection && trace.passages.get(selection.id);
+    byId("passage-inspector").hidden = !entry;
+    byId("inspect-empty").hidden = Boolean(entry);
+    const openPassage = byId("graph-open-passage");
+    openPassage.hidden = !entry || !selection.focused;
+    if (!entry) {
+      scene.setFocus(null);
+      return;
+    }
+    const node = entry;
+    const pinned = scene.isPinned(node.id);
+    const pin = byId("inspect-pin");
+    pin.textContent = pinned ? "Unpin" : "Pin";
+    pin.setAttribute("aria-pressed", String(pinned));
+    byId("inspect-title").textContent = node.title;
+    openPassage.textContent = node.title + " · Read passage ↓";
+    byId("inspect-source").href = articleURL(node.title);
+    const witness = result.origins.get(node.id);
+    const role = result.seedIds.has(node.id) ? "Seed " + rank(node.rank)
+      : witness ? "Via " + witness.from.title : node.rank ? "Search " + rank(node.rank) : "Benchmark passage";
+    byId("inspect-meta").textContent = node.supporting ? role + " · Supporting" : role;
+
+    const incident = (graph.incident.get(node.id) ?? []).filter(edge => edge.active.length);
+    const phrases = phraseIndex(node, incident);
+    const word = phrases.get(selection.term);
+    if (!word) selection.term = undefined;
+    const edge = incident.find(item => item.key === selection.edge);
+    if (!edge) selection.edge = selection.type = undefined;
+    renderEdge(edge, node);
+    const displayedPhrases = edge ? new Map([...phrases].filter(([, phrase]) => phrase.routes.get(edge.key)?.has(selection.type))) : phrases;
+    renderPassageText(node, displayedPhrases);
+
+    const options = word ? incident.filter(item => word.routes.has(item.key)) : incident;
+    const count = options.length;
+    byId("inspect-count").textContent = word ? "“" + word.phrase + "” · " + count + (count === 1 ? " connection" : " connections")
+      : format(count) + (count === 1 ? " connection" : " connections");
+    byId("inspect-clear").hidden = !word && !edge && !selection.focused;
+    byId("inspect-instruction").textContent = word ? "These passages connect through the selected phrase."
+      : displayedPhrases.size ? "Click a highlighted phrase to trace it through the graph."
+      : count ? "Select a connection to read its evidence." : "No enabled links connect this passage in this view.";
+
+    const ordered = [...options].sort((a, b) => {
+      const left = otherEnd(a, node), right = otherEnd(b, node);
+      return Number(b === edge) - Number(a === edge) || Number(right.supporting) - Number(left.supporting) ||
+        b.active.length - a.active.length || (left.rank || Infinity) - (right.rank || Infinity) || left.title.localeCompare(right.title);
     });
+    byId("inspect-connections").replaceChildren(...(allConnections ? ordered : ordered.slice(0, 6)).map(item => {
+      const other = otherEnd(item, node);
+      const kinds = word ? [...word.routes.get(item.key)] : item.active;
+      const row = rowFor(other, kinds.map(type => families[type].label).join(" · "), () => inspectEdge(item, kinds[0], true), kinds);
+      row.firstChild.setAttribute("aria-pressed", String(item === edge));
+      return row;
+    }));
+    const more = byId("inspect-more");
+    more.hidden = count <= 6;
+    more.textContent = allConnections ? "Show fewer connections" : "Show all " + format(count) + " connections";
+
+    let routes = word?.routes;
+    if (!routes && edge) routes = new Map([[edge.key, new Set([selection.type])]]);
+    if (!routes) routes = new Map(incident.map(item => [item.key, new Set(item.active)]));
+    scene.setFocus(selection.focused ? node.id : null, routes);
+  }
+
+  function renderFind() {
+    if (!graph) return;
+    const query = find.value.toLowerCase().trim();
+    searchMatches = query ? graph.nodes.filter(node => node.title.toLowerCase().includes(query))
+      .sort((a, b) => Number(b.title.toLowerCase().startsWith(query)) - Number(a.title.toLowerCase().startsWith(query)) ||
+        (a.rank || Infinity) - (b.rank || Infinity) || a.title.localeCompare(b.title)).slice(0, 6) : [];
+    const list = byId("passage-matches");
+    list.hidden = !query;
+    list.replaceChildren(...(searchMatches.length ? searchMatches.map(node => rowFor(node, "Search " + rank(node.rank), () => {
+      find.value = "";
+      renderFind();
+      inspectNode(node.id, true);
+    })) : [el("li", "inspect-instruction", "No matching passage in this view.")]));
+  }
+
+  function renderSearch() {
+    const { hits, seedIds } = result;
+    byId("search-summary").textContent = seedIds.size + " of " + hits.length + " hits are active seeds. Uncheck one to see what it contributes.";
+    const visible = allSeeds || hits.length <= 5 ? hits : [...hits.slice(0, 4), hits.at(-1)];
+    const focus = document.activeElement?.dataset.seed;
+    const rows = visible.map(node => {
+      const row = rowFor(node, rank(node.rank) + " fused · Words " + rank(node.words) + " · Meaning " + rank(node.meaning), () => {
+        if (!graph.ids.has(node.id)) {
+          shrunk = false;
+          renderGraph();
+        }
+        inspectNode(node.id, true);
+      });
+      const label = el("label", "seed-check");
+      const check = el("input");
+      check.type = "checkbox";
+      check.checked = seedIds.has(node.id);
+      check.dataset.seed = node.id;
+      check.setAttribute("aria-label", "Use " + node.title + " as a seed");
+      check.addEventListener("change", () => {
+        const excluded = exclusions.get(sample.id);
+        if (check.checked) excluded.delete(node.id);
+        else excluded.add(node.id);
+        updateSettings();
+      });
+      label.append(check, el("span", "", "Seed"));
+      row.append(label);
+      return row;
+    });
+    byId("search-rows").replaceChildren(...rows);
+    if (focus) byId("search-rows").querySelector('[data-seed="' + focus + '"]')?.focus({ preventScroll: true });
+    byId("search-reset").hidden = seedIds.size === hits.length;
+    const toggle = byId("search-all");
+    toggle.hidden = hits.length <= 5;
+    toggle.textContent = allSeeds ? "Show fewer hits" : "Show all " + hits.length + " hits";
+  }
+
+  function renderRanking() {
+    const rows = result.boosted;
+    const support = rows.filter(row => row.node.supporting).length;
+    byId("flow-boost-value").textContent = boost.value + "×";
+    byId("finish-summary").textContent = format(result.size) + " shortlist passages · " + support + "/" + trace.support.length + " supporting in the top five.";
+    byId("finish-rows").replaceChildren(...rows.map(({ node, total }, index) => rowFor(node,
+      "Rank " + (index + 1) + " · " + total.toFixed(4) + (node.supporting ? " · Supporting" : ""), () => inspectNode(node.id, true))));
+  }
+
+  function updateSettings() {
+    if (!trace) return;
+    renderGraph();
+    writeURL();
   }
 
   function openArchive(target) {
-    if (evidence.open) evidence.close();
     for (const pane of archivePanes) pane.hidden = pane.id !== target;
-    for (const button of archiveButtons) button.setAttribute("aria-pressed", String(button.dataset.archiveTarget === target));
+    for (const control of archiveButtons) control.setAttribute("aria-pressed", String(control.dataset.archiveTarget === target));
     if (!research.open) research.showModal();
     research.querySelector(".research-content").scrollTop = 0;
   }
 
   function openHash() {
-    const fragment = window.location.hash.slice(1);
-    const index = stageFromHash();
-    if (index >= 0 && result) setPosition(index);
-    if (fragment === "top" && result) setPosition(0);
-    if (archivePanes.some(pane => pane.id === fragment)) openArchive(fragment);
-    if (fragment === "evidence" && trace) openPassage((trace.support[1] ?? trace.support[0]).id);
+    const hash = location.hash.slice(1);
+    if (archivePanes.some(pane => pane.id === hash)) openArchive(hash);
+    if (!trace) return;
+    if (["top", "corpus", "pool", "shortlist", "links"].includes(hash)) {
+      shrunk = ["pool", "shortlist"].includes(hash);
+      selectPanel("inspect", false);
+      renderGraph();
+    } else if (["lab", "rankers"].includes(hash)) selectPanel(hash, false);
   }
 
-  function applySettings() {
-    stopReplay();
-    byId("flow-boost-value").textContent = boostControl.value + "×";
-    writeLocation();
-    renderWalkthrough();
-  }
-
-  function toggleSeed(id) {
-    const excluded = excludedSeeds();
-    if (excluded.has(id)) excluded.delete(id);
-    else excluded.add(id);
-    applySettings();
-  }
-
-  if (budgets.includes(Number(params.get("budget")))) budgetControl.value = params.get("budget");
-  if (["0", "0.5", "1", "1.5", "2"].includes(params.get("boost"))) boostControl.value = params.get("boost");
-  if (params.has("links") && /^[SRNK]*$/.test(params.get("links"))) {
-    for (const control of familyControls) control.checked = params.get("links").includes(control.dataset.family);
-  }
-  byId("flow-boost-value").textContent = boostControl.value + "×";
+  if (budgets.includes(Number(params.get("budget")))) budget.value = params.get("budget");
+  if ([25, 100, 200].includes(Number(params.get("depth")))) depth.value = params.get("depth");
+  if (["0", "0.5", "1", "1.5", "2"].includes(params.get("boost"))) boost.value = params.get("boost");
   for (const dataset of new Set(examples.map(example => example.dataset))) chooseDataset.add(new Option(dataset, dataset));
-
-  chooseDataset.addEventListener("change", () => loadExample(examples.find(example => example.dataset === chooseDataset.value).id));
-  chooseCase.addEventListener("change", () => loadExample(chooseCase.value));
-  byId("flow-retry").addEventListener("click", () => loadExample(chooseCase.value));
-  for (const control of [budgetControl, ...familyControls]) control.addEventListener("change", applySettings);
-  boostControl.addEventListener("input", () => {
-    boosted = true;
-    applySettings();
-  });
-  tune.addEventListener("click", () => {
-    if (settings.hidden) stopReplay();
-    setSettings(settings.hidden);
-  });
-
-  stepButtons.forEach((button, index) => button.addEventListener("click", () => navigateTo(index)));
-  next.addEventListener("click", () => navigateTo(Math.floor(position) + 1));
-  back.addEventListener("click", () => navigateTo(Math.ceil(position) - 1));
-  play.addEventListener("click", playStages);
-  scrub.addEventListener("input", () => {
-    stopReplay();
-    setPosition(Number(scrub.value));
-  });
-  scrub.addEventListener("change", () => writeLocation(Math.round(position)));
-  byId("search-all").addEventListener("click", () => {
-    showAllHits = !showAllHits;
-    renderSearch();
-  });
-  byId("search-reset").addEventListener("click", () => {
-    excludedSeeds().clear();
-    applySettings();
-  });
-
-  for (const [id, mode] of [["finish-base", false], ["finish-boosted", true]]) {
-    byId(id).addEventListener("click", () => {
-      stopReplay();
-      boosted = mode;
-      renderResults();
-      renderSceneCaption(Math.round(position));
-      scene.update(result, selectedRanking(), preview);
+  for (const [type, info] of Object.entries(families)) {
+    const control = button("galaxy-family", undefined, () => {
+      if (enabled.has(type)) enabled.delete(type);
+      else enabled.add(type);
+      updateSettings();
     });
+    const count = el("small");
+    control.style.setProperty("--edge", info.color);
+    control.dataset.family = type;
+    control.append(el("i"), el("span", "", info.title), count);
+    familyButtons.set(type, { control, count });
+    byId("graph-families").append(control);
   }
-  byId("evidence-close").addEventListener("click", () => evidence.close());
-  byId("passage-route").addEventListener("change", event => {
-    currentPassage.key = event.target.value;
-    currentPassage.family = undefined;
-    renderPassage();
+
+  chooseDataset.addEventListener("change", () => load(examples.find(example => example.dataset === chooseDataset.value).id));
+  chooseCase.addEventListener("change", () => load(chooseCase.value));
+  byId("graph-retry").addEventListener("click", () => load(chooseCase.value));
+  for (const control of [budget, depth]) control.addEventListener("change", updateSettings);
+  boost.addEventListener("input", () => {
+    result = run(trace, Number(budget.value), activeFamilies(), Number(boost.value), exclusions.get(sample.id));
+    renderRanking();
+    writeURL();
   });
-  byId("passage-seed").addEventListener("click", () => toggleSeed(currentPassage.id));
-  byId("passage-trace").addEventListener("click", () => {
-    const route = currentRoute(trace.passages.get(currentPassage.id), passageLinks(currentPassage.id));
-    evidence.close();
-    navigateTo(stages.indexOf("links"), false, () => {
-      document.dispatchEvent(new CustomEvent("secondhop:route", { detail: { ...route, family: currentPassage.family } }));
-      byId("links").scrollIntoView({ block: "start", behavior: motion.matches ? "instant" : "smooth" });
-    });
+  panelButtons.forEach(control => control.addEventListener("click", () => selectPanel(control.dataset.panel)));
+  byId("graph-shrink").addEventListener("click", () => { shrunk = !shrunk; updateSettings(); });
+  const pauseControl = byId("graph-pause");
+  function syncPause() {
+    pauseControl.textContent = paused ? "Resume" : "Pause";
+    pauseControl.setAttribute("aria-pressed", String(paused));
+    scene.pause(paused);
+  }
+  pauseControl.addEventListener("click", () => { paused = !paused; syncPause(); });
+  byId("graph-heat").addEventListener("click", event => {
+    showHeat = !showHeat;
+    event.currentTarget.setAttribute("aria-pressed", String(showHeat));
+    byId("graph-heat-key").hidden = !showHeat;
+    scene.heat(showHeat);
+  });
+  byId("inspect-pin").addEventListener("click", () => {
+    scene.pin(selection.id, !scene.isPinned(selection.id));
+    renderInspector();
+  });
+  byId("inspect-clear").addEventListener("click", () => {
+    const id = selection.id;
+    selection = { id, focused: false };
+    renderInspector();
+  });
+  byId("inspect-more").addEventListener("click", () => { allConnections = !allConnections; renderInspector(); });
+  byId("search-all").addEventListener("click", () => { allSeeds = !allSeeds; renderSearch(); });
+  byId("search-reset").addEventListener("click", () => { exclusions.get(sample.id).clear(); updateSettings(); });
+  byId("graph-open-passage").addEventListener("click", () => byId("inspect").scrollIntoView({ block: "start", behavior: motion.matches ? "auto" : "smooth" }));
+  find.addEventListener("input", renderFind);
+  find.addEventListener("keydown", event => {
+    if (event.key !== "Enter" || !searchMatches.length) return;
+    const id = searchMatches[0].id;
+    find.value = "";
+    renderFind();
+    inspectNode(id, true);
   });
   for (const link of document.querySelectorAll("[data-open-research]")) link.addEventListener("click", event => {
     event.preventDefault();
-    stopReplay();
     openArchive(link.hash.slice(1));
   });
-  archiveButtons.forEach(button => button.addEventListener("click", () => openArchive(button.dataset.archiveTarget)));
+  archiveButtons.forEach(control => control.addEventListener("click", () => openArchive(control.dataset.archiveTarget)));
   byId("research-close").addEventListener("click", () => research.close());
-  document.addEventListener("secondhop:passage", ({ detail }) => openPassage(detail));
-  document.addEventListener("secondhop:locate", ({ detail }) => {
-    navigateTo(stages.indexOf("links"), false, () => {
-      scene.locate(detail.route, detail.family);
-      visual.scrollIntoView({ block: "center", behavior: motion.matches ? "instant" : "smooth" });
-    });
+  window.addEventListener("hashchange", openHash);
+  syncPause();
+  load(initial.id, false).then(() => {
+    if (archivePanes.some(pane => pane.id === location.hash.slice(1))) openHash();
   });
-  document.addEventListener("secondhop:links", ({ detail }) => {
-    for (const control of familyControls) if (!control.disabled) control.checked = detail.includes(control.dataset.family);
-    applySettings();
-  });
-  window.addEventListener("hashchange", () => {
-    stopReplay();
-    openHash();
-  });
-  loadExample(initialCase.id, false);
 })();

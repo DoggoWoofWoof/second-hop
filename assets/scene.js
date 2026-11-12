@@ -4,624 +4,540 @@
   const { families } = window.SECOND_HOP_LINKS;
   const gold = "#ffce8d";
   const violet = "#bbabff";
-  const cyan = "#8cdbdf";
-  const muted = "#a99ab8";
+  const clamp = (n, low, high) => Math.max(low, Math.min(high, n));
   const mix = (a, b, t) => a + (b - a) * t;
-  const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
-  const smooth = t => t * t * (3 - 2 * t);
-  const seedKey = id => "p" + id;
+  const keys = Object.keys(families);
 
-  function segmentDistance(point, a, b) {
-    const dx = b.x - a.x;
-    const dy = b.y - a.y;
-    const length = dx * dx + dy * dy;
-    const t = length ? clamp(((point.x - a.x) * dx + (point.y - a.y) * dy) / length, 0, 1) : 0;
-    return Math.hypot(point.x - (a.x + t * dx), point.y - (a.y + t * dy));
+  function phaseOf(id) {
+    return ((Math.imul(id + 71, 0x9e3779b1) >>> 0) / 4294967296) * Math.PI * 2;
   }
 
-  function noise(id, salt) {
-    const hash = Math.imul(id ^ Math.imul(salt, 0x9e3779b1), 0x45d9f3b);
-    return ((hash ^ (hash >>> 16)) >>> 0) / 4294967296;
-  }
-
-  function orbit(id, rx, ry, cy = .48) {
-    const angle = noise(id, 1) * Math.PI * 2;
-    const distance = Math.sqrt(noise(id, 2));
-    return { x: .5 + Math.cos(angle) * rx * distance, y: cy + Math.sin(angle) * ry * distance };
-  }
-
-  function keyframe(index) {
-    return { nodes: new Map(), edges: new Map(), cloud: [1, .35, .19, 0, 0][index], guides: [0, 1, 2, 3, 4].map(i => Number(i === index)) };
-  }
-
-  function addPassage(frame, node, at, style) {
-    frame.nodes.set(seedKey(node.id), { ...at, ...style, node, opacity: style.opacity ?? 1 });
-  }
-
-  function lane(index, count) {
-    return count === 1 ? .46 : .2 + .58 * index / Math.max(1, count - 1);
-  }
-
-  function makeFrames(result, ranking, preview) {
-    const frames = Array.from({ length: 5 }, (_, index) => keyframe(index));
-    const [corpus, search, graph, pool, final] = frames;
-    const highlighted = result.seeds.slice(0, 5);
-    const highlightedIds = new Set(highlighted.map(node => node.id));
-    const rankedIds = new Set(ranking.map(item => item.node.id));
-    const candidates = [...result.origins.values()];
-    const fromVisibleSeeds = candidates.filter(route => highlightedIds.has(route.from.id));
-    const illustrated = [...fromVisibleSeeds].sort((a, b) =>
-      Number(rankedIds.has(b.to.id)) - Number(rankedIds.has(a.to.id)) ||
-      Number(b.to.supporting) - Number(a.to.supporting) ||
-      b.active.length - a.active.length || a.from.rank - b.from.rank
-    ).slice(0, 7);
-    const namesByRoute = new Map(illustrated.map((route, index) => [route.to.id, index]));
-    const seedPositions = new Map(highlighted.map((node, index) => [node.id, lane(index, highlighted.length)]));
-    const pooled = [...result.seeds, ...candidates.map(route => route.to)];
-    const crowded = pooled.length > 180;
-    const radius = crowded ? 1.6 : pooled.length > 100 ? 2.25 : 3.2;
-
-    for (const node of new Map([...preview, ...highlighted].map(item => [item.id, item])).values()) {
-      addPassage(corpus, node, orbit(node.id, .44, .36), { radius: 2.6, color: violet, opacity: .72 });
-    }
-
-    const ranks = ["words", "meaning"];
-    const orders = ranks.map(rank => preview.filter(node => node[rank]).sort((a, b) => a[rank] - b[rank]));
-    preview.forEach((node, index) => {
-      const active = result.seedIds.has(node.id);
-      addPassage(search, node, { x: .5, y: lane(index, preview.length) }, {
-        color: active ? gold : muted, radius: 5.2, label: node.title, align: "center", spawn: orbit(node.id, .44, .36),
-      });
-      ranks.forEach((rank, side) => {
-        if (!node[rank]) return;
-        const source = rank + node.id;
-        const rankOrder = orders[side];
-        const color = side ? violet : cyan;
-        search.nodes.set(source, {
-          x: side ? .88 : .12, y: lane(rankOrder.indexOf(node), rankOrder.length),
-          opacity: .85, radius: 3.7, color, rank: "#" + node[rank],
-        });
-        search.edges.set(source, {
-          from: side ? seedKey(node.id) : source, to: side ? source : seedKey(node.id), color, opacity: .58, bend: 0, strong: true,
-        });
-      });
-    });
-
-    for (const node of result.seeds) {
-      const featured = highlightedIds.has(node.id);
-      const at = featured ? { x: .25, y: seedPositions.get(node.id) }
-        : { x: .27 + .12 * noise(node.id, 3), y: .16 + .66 * noise(node.id, 4) };
-      addPassage(graph, node, at, {
-        radius: featured ? 6 : radius, color: gold, opacity: featured ? 1 : .7,
-        label: featured ? node.title : "", align: "left", spawn: orbit(node.id, .42, .34),
-      });
-    }
-    for (const route of candidates) {
-      const node = route.to;
-      const name = namesByRoute.get(node.id);
-      const featured = name !== undefined;
-      const at = featured ? { x: .73, y: lane(name, illustrated.length) }
-        : { x: .54 + .27 * noise(node.id, 3), y: .14 + .69 * noise(node.id, 4) };
-      addPassage(graph, node, at, {
-        radius: featured ? 5.9 : radius, color: violet, opacity: featured ? 1 : .62,
-        label: featured ? node.title : "", align: "right", from: seedKey(route.from.id),
-      });
-    }
-    for (const route of result.routes) {
-      if (!route.active.length) continue;
-      const featured = illustrated.includes(route);
-      const types = route.active;
-      types.forEach((type, index) => {
-        graph.edges.set(route.key + type, {
-          from: seedKey(route.from.id), to: seedKey(route.to.id),
-          type, color: families[type].color, dash: families[type].dash, strong: featured,
-          bend: (index - (types.length - 1) / 2) * (featured ? .027 : .01),
-          opacity: featured ? .79 : crowded ? .07 : .17, route,
-        });
-      });
-    }
-
-    for (const node of pooled) {
-      const seed = result.seedIds.has(node.id);
-      addPassage(pool, node, orbit(node.id, .225, .305), {
-        radius: rankedIds.has(node.id) ? Math.max(radius, 3.7) : radius,
-        color: seed ? gold : violet, opacity: crowded ? .68 : .87,
-      });
-    }
-
-    ranking.forEach(({ node }, index) => {
-      addPassage(final, node, { x: .232, y: .185 + .14 * index }, {
-        radius: 6.2, color: result.seedIds.has(node.id) ? gold : violet, label: node.title, align: "row",
-        rank: String(index + 1),
-      });
-    });
-    return frames;
-  }
-
-  function interpolate(left, right, t) {
-    if (t <= 0) return left;
-    if (t >= 1) return right;
-    const nodes = new Map();
-    for (const [key, start] of left.nodes) {
-      const end = right.nodes.get(key);
-      if (end) {
-        nodes.set(key, {
-          ...(t < .5 ? start : end),
-          x: mix(start.x, end.x, t), y: mix(start.y, end.y, t),
-          radius: mix(start.radius, end.radius, t), opacity: mix(start.opacity, end.opacity, t),
-          textOpacity: start.label === end.label && start.align === end.align ? 1 : Math.abs(1 - 2 * t),
-        });
-      } else {
-        nodes.set(key, { ...start, radius: start.radius * (1 - .42 * t), opacity: start.opacity * (1 - t) });
-      }
-    }
-    for (const [key, end] of right.nodes) {
-      if (nodes.has(key)) continue;
-      const start = left.nodes.get(end.from) ?? right.nodes.get(end.from) ?? end.spawn ?? end;
-      nodes.set(key, {
-        ...end,
-        x: mix(start.x, end.x, t),
-        y: mix(start.y, end.y, t) - (end.from ? Math.sin(Math.PI * t) * .049 : 0),
-        radius: mix(Math.min(2.4, end.radius), end.radius, t),
-        opacity: end.opacity * t, textOpacity: t,
-      });
-    }
-    const edges = new Map();
-    for (const [key, edge] of left.edges) {
-      edges.set(key, { ...edge, opacity: mix(edge.opacity, right.edges.get(key)?.opacity ?? 0, t) });
-    }
-    for (const [key, edge] of right.edges) {
-      if (!edges.has(key)) edges.set(key, { ...edge, opacity: edge.opacity * t, arrival: t });
-    }
-    return {
-      nodes, edges, cloud: mix(left.cloud, right.cloud, t),
-      guides: left.guides.map((weight, index) => mix(weight, right.guides[index], t)),
-    };
-  }
-
-  function passageScene(canvas, { inspect, inspectLink, pause }) {
-    const ctx = canvas.getContext("2d");
+  function graphScene(canvas, handlers) {
     const field = canvas.parentElement;
-    const motion = window.matchMedia("(prefers-reduced-motion: reduce)");
-    const panButton = document.getElementById("scene-pan");
-    const offsets = new Map();
-    let frames;
-    let drawn;
-    let progress = 0;
-    let morph;
-    let raf = 0;
-    let width = 0, height = 0;
-    let zoom = 1, panX = 0, panY = 0;
-    let pointer;
-    let hover;
-    let located;
-    let noSeeds = false;
-    let shortRanking = 5;
-    let boxes = [];
+    const ctx = canvas.getContext("2d");
+    const heatLayer = document.createElement("canvas");
+    const heatCtx = heatLayer.getContext("2d");
+    const motion = matchMedia("(prefers-reduced-motion: reduce)");
+    const linkForce = d3.forceLink().id(node => node.id);
+    const charge = d3.forceManyBody().strength(-22).distanceMax(195);
+    const pullX = d3.forceX(0);
+    const pullY = d3.forceY(0);
+    const simulation = d3.forceSimulation().stop()
+      .alphaTarget(.07).alphaDecay(.07).velocityDecay(.45)
+      .force("links", linkForce)
+      .force("charge", charge)
+      .force("collision", d3.forceCollide(4.5).strength(.65))
+      .force("x", pullX)
+      .force("y", pullY)
+      .force("drift", alpha => {
+        for (const node of nodes) {
+          if (node.fx != null) continue;
+          node.vx += Math.sin(clock * .0017 + node.phase) * alpha * 2.25;
+          node.vy += Math.cos(clock * .0014 + node.phase) * alpha * 1.6;
+        }
+      });
+
+    const layout = new Map();
+    let nodes = [];
+    let links = [];
+    let fading = [];
+    let departing = [];
+    let selected = null;
+    let hover = null;
+    let pointer = null;
+    let width = 0, height = 0, frame = 0, clock = 0, lastTick = 0, lastPaint = 0;
+    let camera = { x: 0, y: 0, scale: 1 };
+    let destination = null;
+    let hasFit = false;
+    let paused = motion.matches;
+    let showHeat = true;
+    let panTouch = false;
+    let visible = true;
+    let forceFit = true;
+    let heatDue = 0;
+    let hits = [];
     let strokes = [];
-    let panEnabled = false;
 
-    function invalidate() {
-      if (!raf) raf = requestAnimationFrame(render);
+    function schedule() {
+      if (!frame && visible) frame = requestAnimationFrame(draw);
     }
 
-    function frameAt(value) {
-      const step = Math.floor(value);
-      return interpolate(frames[step], frames[Math.min(step + 1, frames.length - 1)], smooth(value - step));
+    function show(model, result, { fresh, shrunk }) {
+      if (fresh) {
+        layout.clear();
+        nodes = links = departing = fading = [];
+        selected = hover = destination = null;
+        camera = { x: 0, y: 0, scale: 1 };
+        hasFit = false;
+        forceFit = true;
+      }
+      const now = performance.now();
+      const previous = new Set(nodes.map(node => node.id));
+      const oldLinks = new Map(links.map(link => [link.edge.key, link]));
+      departing = nodes.filter(node => !model.ids.has(node.id)).map(node => ({ ...node, exit: now }));
+      const n = model.nodes.length;
+      nodes = model.nodes.map((passage, index) => {
+        const existing = layout.get(passage.id);
+        if (existing) {
+          existing.seed = result.seedIds.has(passage.id);
+          existing.highlight = passage.supporting || existing.seed;
+          if (!previous.has(passage.id)) existing.enter = now;
+          return existing;
+        }
+        const angle = index * 2.3999632297 + phaseOf(passage.id) * .15;
+        const r = Math.sqrt(index + .5) * 10;
+        const node = {
+          id: passage.id, passage, phase: phaseOf(passage.id),
+          x: r * Math.cos(angle), y: r * Math.sin(angle) * .8,
+          enter: now, seed: result.seedIds.has(passage.id),
+          highlight: passage.supporting || result.seedIds.has(passage.id),
+        };
+        layout.set(node.id, node);
+        return node;
+      });
+      const active = model.pairs.filter(edge => edge.active.length);
+      const activeTypes = new Map(active.map(edge => [edge.key, edge.active]));
+      fading = links.flatMap(link => {
+        const types = link.types.filter(type => !activeTypes.get(link.edge.key)?.includes(type));
+        return types.length ? [{ ...link, types, exit: now }] : [];
+      });
+      links = active.map(edge => ({
+        source: edge.a.id, target: edge.b.id, edge, types: edge.active,
+        enter: oldLinks.has(edge.key) && edge.active.every(type => oldLinks.get(edge.key).types.includes(type)) ? null : now,
+      }));
+      linkForce.links([]);
+      simulation.nodes(nodes);
+      linkForce.links(links)
+        .distance(link => Math.min(...link.types.map(type => families[type].length)) * (shrunk ? .82 : 1))
+        .strength(link => Math.min(.27, .078 + link.types.length * .042));
+      pullX.strength(shrunk ? .11 : .046);
+      pullY.strength(shrunk ? .13 : .063);
+      charge.strength(n > 1200 ? -11 : shrunk ? -16 : -24);
+      simulation.alpha(fresh ? 1 : .7);
+      if (fresh || motion.matches) simulation.tick(n > 1200 ? 9 : motion.matches ? 24 : 13);
+      if (selected && !model.ids.has(selected.id)) selected = null;
+      heatDue = 0;
+      lastPaint = 0;
+      schedule();
     }
 
-    function update(result, ranking, preview, animate = true) {
-      if (frames && animate && !motion.matches) morph = { start: performance.now(), from: drawn ?? frameAt(progress) };
-      else morph = undefined;
-      noSeeds = !result.seeds.length;
-      shortRanking = ranking.length;
-      frames = makeFrames(result, ranking, preview);
-      if (located && !frames[2].edges.has(located.key)) located = undefined;
-      invalidate();
+    function fit(animated = true) {
+      if (!width || !height || !nodes.length) return;
+      let left = Infinity, top = Infinity, right = -Infinity, bottom = -Infinity;
+      for (const node of nodes) {
+        left = Math.min(left, node.x);
+        right = Math.max(right, node.x);
+        top = Math.min(top, node.y);
+        bottom = Math.max(bottom, node.y);
+      }
+      const scale = clamp(Math.min((width - 72) / Math.max(45, right - left), (height - 119) / Math.max(45, bottom - top)), .23, 4.2);
+      aim({ x: (left + right) / 2, y: (top + bottom) / 2, scale }, animated);
+      hasFit = true;
     }
 
-    function setPosition(value) {
-      progress = value;
-      invalidate();
+    function aim(value, animated = true) {
+      if (animated && !motion.matches) destination = { from: { ...camera }, to: value, start: performance.now() };
+      else {
+        camera = value;
+        destination = null;
+      }
+      heatDue = 0;
+      schedule();
     }
 
-    function point(key, node) {
-      const offset = offsets.get(key);
-      return { x: (node.x + (offset?.x ?? 0)) * width, y: (node.y + (offset?.y ?? 0)) * height };
+    function locate(id) {
+      const node = layout.get(id);
+      if (!node || !nodes.includes(node)) return;
+      forceFit = false;
+      aim({ x: node.x, y: node.y, scale: Math.max(camera.scale, .9) });
     }
 
-    function render(now) {
-      raf = 0;
-      if (!frames || !ctx) return;
-      width = canvas.clientWidth;
-      height = canvas.clientHeight;
-      if (!width || !height) return;
-      const dpr = Math.min(window.devicePixelRatio || 1, 2);
-      const pixelWidth = Math.round(width * dpr);
-      const pixelHeight = Math.round(height * dpr);
-      if (canvas.width !== pixelWidth) canvas.width = pixelWidth;
-      if (canvas.height !== pixelHeight) canvas.height = pixelHeight;
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    function setFocus(id, routes) {
+      selected = id == null ? null : { id, routes };
+      schedule();
+    }
+
+    function pin(id, value) {
+      const node = layout.get(id);
+      if (!node) return;
+      node.pinned = value;
+      node.fx = value ? node.x : null;
+      node.fy = value ? node.y : null;
+      simulation.alpha(Math.max(.3, simulation.alpha()));
+      schedule();
+    }
+
+    function isPinned(id) {
+      return Boolean(layout.get(id)?.pinned);
+    }
+
+    function projection(node) {
+      return { x: width * .5 + (node.x - camera.x) * camera.scale, y: height * .53 + (node.y - camera.y) * camera.scale };
+    }
+
+    function draw(now) {
+      frame = 0;
+      clock = now;
+      if (!ctx || !width || !height) return;
+      if (!paused && links.length + fading.length > 5500 && now - lastPaint < 29) {
+        schedule();
+        return;
+      }
+      lastPaint = now;
+      const stepMs = nodes.length > 900 ? 32 : 15;
+      if (!paused && now - lastTick >= stepMs) {
+        simulation.tick();
+        lastTick = now;
+      }
+      if (!hasFit) fit(false);
+      if (destination) {
+        const p = clamp((now - destination.start) / 480, 0, 1);
+        const ease = p * p * (3 - 2 * p);
+        for (const key of ["x", "y", "scale"]) camera[key] = mix(destination.from[key], destination.to[key], ease);
+        heatDue = 0;
+        if (p === 1) destination = null;
+      }
+      const ratio = Math.min(devicePixelRatio || 1, 2);
+      ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
       ctx.clearRect(0, 0, width, height);
-      ctx.translate(width * (.5 + panX), height * (.5 + panY));
-      ctx.scale(zoom, zoom);
-      ctx.translate(-width * .5, -height * .5);
-      drawn = frameAt(progress);
-      if (morph) {
-        const fraction = clamp((now - morph.start) / 575, 0, 1);
-        drawn = interpolate(morph.from, drawn, smooth(fraction));
-        if (fraction < 1) invalidate();
-        else morph = undefined;
+      if (showHeat && nodes.length) {
+        if (now >= heatDue) {
+          paintDensity();
+          heatDue = now + 108;
+        }
+        ctx.drawImage(heatLayer, 0, 0, width, height);
       }
-      boxes = [];
+      fading = fading.filter(link => now - link.exit < 620);
+      departing = departing.filter(node => now - node.exit < 820);
+      paintLinks(now);
+      paintNodes(now);
+      if (!paused || destination || departing.length || fading.length || nodes.some(node => now - node.enter < 520)) schedule();
+    }
+
+    function paintDensity() {
+      const columns = Math.max(24, Math.round(width / 8));
+      const rows = Math.max(25, Math.round(height / 8));
+      heatLayer.width = columns;
+      heatLayer.height = rows;
+      const grid = new Float32Array(columns * rows);
+      for (const node of nodes) {
+        const p = projection(node);
+        const x = Math.floor(p.x * columns / width), y = Math.floor(p.y * rows / height);
+        for (let dy = -5; dy <= 5; dy++) {
+          const row = y + dy;
+          if (row < 0 || row >= rows) continue;
+          for (let dx = -5; dx <= 5; dx++) {
+            const column = x + dx;
+            const distance = dx * dx + dy * dy;
+            if (column < 0 || column >= columns || distance > 29) continue;
+            grid[row * columns + column] += densityKernel[distance];
+          }
+        }
+      }
+      const pixels = heatCtx.createImageData(columns, rows);
+      for (let i = 0; i < grid.length; i++) {
+        const t = 1 - Math.exp(-grid[i] / 8);
+        const offset = i * 4;
+        pixels.data[offset] = mix(109, 255, t);
+        pixels.data[offset + 1] = mix(65, 159, t);
+        pixels.data[offset + 2] = mix(171, 185, t);
+        pixels.data[offset + 3] = t * 148;
+      }
+      heatCtx.putImageData(pixels, 0, 0);
+    }
+
+    function curve(a, b, i, count) {
+      const dx = b.x - a.x, dy = b.y - a.y;
+      const l = Math.max(1, Math.hypot(dx, dy));
+      const bend = count > 1 ? (i - (count - 1) / 2) * Math.min(8, l / 5) : Math.min(6, l * .08);
+      return { x: (a.x + b.x) / 2 - dy / l * bend, y: (a.y + b.y) / 2 + dx / l * bend };
+    }
+
+    function drawCurve(path, a, mid, b) {
+      path.moveTo(a.x, a.y);
+      path.quadraticCurveTo(mid.x, mid.y, b.x, b.y);
+    }
+
+    function curvePoint(a, mid, b, p) {
+      const q = 1 - p;
+      return { x: q * q * a.x + 2 * q * p * mid.x + p * p * b.x, y: q * q * a.y + 2 * q * p * mid.y + p * p * b.y };
+    }
+
+    function paintLinks(now) {
       strokes = [];
-      drawGuides(drawn);
-      drawEdges(drawn, now);
-      drawNodes(drawn.nodes);
-    }
-
-    function drawGuides({ cloud, guides }) {
-      if (cloud > .01) {
-        ctx.fillStyle = violet;
-        const count = width < 490 ? 236 : 382;
-        for (let index = 1; index <= count; index++) {
-          const p = orbit(index + 5000, .445 + .023 * cloud, .36, .48);
-          ctx.globalAlpha = cloud * (.15 + .62 * noise(index, 5));
-          ctx.beginPath();
-          ctx.arc(p.x * width, p.y * height, .8 + noise(index, 6) * 1.48, 0, Math.PI * 2);
-          ctx.fill();
+      const pools = new Map(keys.map(type => [type, new Path2D()]));
+      const front = [];
+      const highlightedIds = new Set(selected ? [selected.id] : []);
+      const count = links.length;
+      const stride = Math.max(1, Math.ceil((count + fading.length) / (camera.scale >= 1.6 ? 7400 : 4500)));
+      let index = 0;
+      for (const link of [...links, ...fading]) {
+        const focus = selected?.routes.get(link.edge.key);
+        const hovered = hover?.id === link.source.id || hover?.id === link.target.id || hover?.edge?.key === link.edge.key;
+        const spotlight = (link.source.seed && (stride === 1 || link.source.passage.rank <= 5)) ||
+          (link.target.seed && (stride === 1 || link.target.passage.rank <= 5));
+        if (index++ % stride && !focus && !hovered && !spotlight) continue;
+        const a = projection(link.source);
+        const b = projection(link.target);
+        if ((a.x < -10 && b.x < -10) || (a.x > width + 10 && b.x > width + 10) ||
+            (a.y < -10 && b.y < -10) || (a.y > height + 10 && b.y > height + 10)) continue;
+        if (focus) { highlightedIds.add(link.source.id); highlightedIds.add(link.target.id); }
+        for (const [index, type] of link.types.entries()) {
+          const mid = curve(a, b, index, link.types.length);
+          const chosen = focus?.has(type);
+          const hot = chosen || (hovered && (!hover.edge || hover.type === type));
+          const edge = { edge: link.edge, type, a, mid, b, hot, featured: spotlight || hot };
+          const transition = link.exit ? clamp(1 - (now - link.exit) / 620, 0, 1)
+            : link.enter ? clamp((now - link.enter) / 430, 0, 1) : 1;
+          if (!link.exit) strokes.push(edge);
+          if (hot || (spotlight && !selected) || transition < 1) {
+            const alpha = hot ? .94 : spotlight && !selected ? .52 : selected ? .055 : .22;
+            front.push({ ...edge, alpha: alpha * transition, sparkle: chosen && !paused });
+          } else drawCurve(pools.get(type), a, mid, b);
         }
       }
-      const [, search, graph, pool, final] = guides;
-      if (search > .01) {
-        caption("WORD RANK", .12, search, cyan);
-        caption("FUSED RANK", .5, search, gold);
-        caption("MEANING RANK", .88, search, violet);
-      }
-      if (graph > .01) {
-        caption("SEARCH HITS", .25, graph, gold);
-        caption("LINKED NEIGHBOURS", .73, graph, violet);
-      }
-      const boundary = guides[0] * .45 + graph * .15 + pool * .65;
-      if (boundary > .015) {
-        ctx.globalAlpha = boundary;
-        ctx.strokeStyle = violet;
-        ctx.lineWidth = 1;
-        ctx.setLineDash([3, 7]);
-        ctx.beginPath();
-        ctx.ellipse(.5 * width, .48 * height, mix(.47, .25, pool) * width, mix(.39, .341, pool) * height, 0, 0, Math.PI * 2);
-        ctx.stroke();
-        ctx.setLineDash([]);
-      }
-      if (final > .01) {
-        ctx.globalAlpha = final * .59;
-        for (let index = 0; index < shortRanking; index++) {
-          ctx.fillStyle = "#2e2241";
-          ctx.strokeStyle = "#655178";
-          ctx.lineWidth = 1;
-          ctx.beginPath();
-          ctx.roundRect(width * .15, height * (.185 + .14 * index - .051), width * .7, height * .102, 8);
-          ctx.fill();
-          ctx.stroke();
-        }
-      }
-      if (noSeeds && graph + pool + final > .65) {
-        ctx.globalAlpha = graph + pool + final;
-        ctx.textAlign = "center";
-        ctx.font = "600 13px Inter, system-ui, sans-serif";
-        ctx.fillStyle = "#f5effb";
-        ctx.fillText("Choose a seed in Search to start.", width * .5, height * .47);
-      }
-      ctx.globalAlpha = 1;
-    }
-
-    function caption(text, x, opacity, color) {
-      ctx.globalAlpha = opacity;
-      ctx.fillStyle = color;
-      ctx.font = (width < 480 ? "10px" : "12px") + " ui-monospace, monospace";
-      ctx.textAlign = "center";
-      ctx.fillText(text, x * width, height * .095);
-    }
-
-    function curve(path, start, end, bend) {
-      const reach = (end.x - start.x) * .42;
-      path.moveTo(start.x, start.y);
-      path.bezierCurveTo(start.x + reach, start.y + bend, end.x - reach, end.y + bend, end.x, end.y);
-    }
-
-    function drawEdges(frame, now) {
-      const groups = new Map();
-      const focused = [];
-      for (const [key, edge] of frame.edges) {
-        const start = frame.nodes.get(edge.from);
-        const end = frame.nodes.get(edge.to);
-        if (!start || !end || edge.opacity < .012) continue;
-        const a = point(edge.from, start);
-        const b = point(edge.to, end);
-        const bend = edge.bend * height;
-        const selected = located?.key === key;
-        const hoveredEdge = hover?.route && hover.route === edge.route && hover.type === edge.type;
-        const emphasize = selected || hoveredEdge || hover?.key === edge.from || hover?.key === edge.to;
-        if (edge.route) strokes.push({ edge, a, b, bend, featured: edge.strong || selected });
-        if (edge.strong || emphasize) {
-          focused.push({ edge, a, b, bend, emphasize, selected });
-          continue;
-        }
-        const group = edge.type ?? edge.color;
-        if (!groups.has(group)) groups.set(group, { edge, path: new Path2D() });
-        curve(groups.get(group).path, a, b, bend);
-      }
-      for (const { edge, path } of groups.values()) {
-        ctx.strokeStyle = edge.color;
-        ctx.globalAlpha = edge.opacity;
-        ctx.lineWidth = .75;
-        ctx.setLineDash([]);
+      for (const [type, path] of pools) {
+        ctx.globalAlpha = selected ? .053 : count > 2500 ? .10 : .23;
+        ctx.lineWidth = .83;
+        ctx.strokeStyle = families[type].color;
+        ctx.setLineDash(count > 2200 ? [] : families[type].dash);
         ctx.stroke(path);
       }
-      for (const { edge, a, b, bend, emphasize, selected } of focused) {
-        ctx.strokeStyle = edge.color;
-        ctx.globalAlpha = emphasize ? 1 : edge.opacity;
-        ctx.lineWidth = emphasize ? 2.6 : 1.45;
-        ctx.setLineDash(edge.dash ?? []);
+      front.sort((a, b) => a.alpha - b.alpha);
+      for (const edge of front) {
+        const { a, mid, b, type, hot, alpha, sparkle } = edge;
+        ctx.strokeStyle = families[type].color;
+        ctx.globalAlpha = alpha;
+        ctx.lineWidth = hot ? 2 : 1.1;
+        ctx.setLineDash(families[type].dash);
         ctx.beginPath();
-        curve(ctx, a, b, bend);
+        drawCurve(ctx, a, mid, b);
         ctx.stroke();
-        if (edge.route) {
-          const replay = selected && !motion.matches ? (now - located.start) / 1200 : 1;
-          const travel = replay < 1 ? Math.max(0, replay) : .58 + (edge.arrival ?? 1) * .42;
-          if (travel < 1) {
-            const p = along(a, b, bend, travel);
-            ctx.fillStyle = edge.color;
-            ctx.beginPath();
-            ctx.arc(p.x, p.y, 2.7, 0, Math.PI * 2);
-            ctx.fill();
-            if (replay < 1) invalidate();
-          }
+        if (sparkle) {
+          const p = curvePoint(a, mid, b, (now * .00061 + phaseOf(edge.edge.a.id)) % 1);
+          ctx.fillStyle = families[type].color;
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, 2.5, 0, Math.PI * 2);
+          ctx.fill();
         }
       }
       ctx.globalAlpha = 1;
       ctx.setLineDash([]);
+      paintNodes.focused = highlightedIds;
     }
 
-    function along(a, b, bend, t) {
-      const u = 1 - t;
-      const reach = (b.x - a.x) * .42;
-      return {
-        x: u ** 3 * a.x + 3 * u * u * t * (a.x + reach) + 3 * u * t * t * (b.x - reach) + t ** 3 * b.x,
-        y: u ** 3 * a.y + 3 * u * u * t * (a.y + bend) + 3 * u * t * t * (b.y + bend) + t ** 3 * b.y,
-      };
-    }
-
-    function drawNodes(nodes) {
+    function paintNodes(now) {
+      hits = [];
       const labels = [];
-      for (const [key, node] of nodes) {
-        if (node.opacity < .035) continue;
-        const p = point(key, node);
-        const locatedNode = Math.round(progress) === 2 && (located?.from === key || located?.to === key);
-        const active = hover?.key === key || locatedNode;
-        ctx.globalAlpha = active ? 1 : node.opacity;
-        ctx.fillStyle = node.color;
+      const focused = paintNodes.focused;
+      const compact = nodes.length > 650;
+      for (const node of [...nodes, ...departing]) {
+        const p = projection(node);
+        const fade = node.exit ? clamp(1 - (now - node.exit) / 820, 0, 1) : clamp((now - node.enter) / 520, .07, 1);
+        if (node.exit) {
+          p.x += (p.x - width * .5) * (1 - fade) * .12;
+          p.y += (p.y - height * .53) * (1 - fade) * .12;
+        }
+        if (p.x < -12 || p.x > width + 12 || p.y < -12 || p.y > height + 12) continue;
+        const current = selected?.id === node.id || hover?.id === node.id || pointer?.node?.id === node.id;
+        const bright = current || focused.has(node.id);
+        const r = (current ? 5.8 : node.seed ? 4.9 : node.passage.supporting ? 4.3 : compact ? 1.65 : 2.35) * clamp(Math.sqrt(camera.scale), .72, 1.45);
+        const color = node.seed ? gold : violet;
+        ctx.globalAlpha = fade * (bright ? 1 : selected ? .27 : node.highlight ? .97 : .67);
+        ctx.fillStyle = color;
         ctx.beginPath();
-        ctx.arc(p.x, p.y, node.radius + (active ? 2 : 0), 0, Math.PI * 2);
+        ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
         ctx.fill();
-        if (node.radius >= 5 || active) {
-          ctx.strokeStyle = node.color;
-          ctx.globalAlpha *= .42;
-          ctx.lineWidth = 1;
+        if (node.highlight || current || node.pinned) {
+          ctx.strokeStyle = color;
+          ctx.globalAlpha *= current || node.pinned ? .88 : .48;
+          ctx.lineWidth = current ? 1.5 : 1;
           ctx.beginPath();
-          ctx.arc(p.x, p.y, node.radius + 4, 0, Math.PI * 2);
+          ctx.arc(p.x, p.y, r + (current ? 5 : 3), 0, Math.PI * 2);
           ctx.stroke();
         }
-        const box = { key, x: p.x, y: p.y, radius: Math.max(8, node.radius + 5), node: node.node, named: Boolean(node.label) };
-        if (node.node && node.opacity > .38) boxes.push(box);
-        if (node.label || node.rank || active) labels.push({ node, p, box, active });
+        if (!node.exit) {
+          const hit = { ...p, id: node.id, radius: Math.max(6, r + 3), node };
+          hits.push(hit);
+          const namedNeighbour = selected && focused.size <= 9 && focused.has(node.id);
+          if (current || namedNeighbour || (!selected && node.highlight && (node.passage.rank <= 4 || node.passage.supporting))) labels.push({ hit, current });
+        }
       }
-      for (const label of labels) drawLabel(label);
+      labels.sort((a, b) => Number(b.current) - Number(a.current) || Number(b.hit.node.seed) - Number(a.hit.node.seed));
+      const occupied = [];
+      ctx.font = (width < 470 ? "600 11px" : "600 12px") + " Inter, system-ui, sans-serif";
+      ctx.textAlign = "left";
+      for (const { hit, current } of labels.slice(0, width < 470 ? 4 : 8)) {
+        const title = hit.node.passage.title;
+        const label = title.length > 31 ? title.slice(0, 29) + "…" : title;
+        const w = ctx.measureText(label).width;
+        const x = clamp(hit.x + 11, 8, Math.max(8, width - w - 8));
+        const y = clamp(hit.y - 8, 18, height - 8);
+        if (occupied.some(box => x < box.right && x + w > box.x && Math.abs(y - box.y) < 15)) continue;
+        ctx.globalAlpha = current ? 1 : .89;
+        ctx.lineWidth = 4;
+        ctx.strokeStyle = "#170f21";
+        ctx.strokeText(label, x, y);
+        ctx.fillStyle = "#f5effb";
+        ctx.fillText(label, x, y);
+        hit.label = { x, y, right: x + w };
+        occupied.push(hit.label);
+      }
       ctx.globalAlpha = 1;
     }
 
-    function drawLabel({ node, p, box, active }) {
-      const font = width < 470 ? 11 : 13;
-      const align = node.align ?? "right";
-      const title = node.label || (active ? node.node?.title : "");
-      ctx.globalAlpha = node.opacity * (node.textOpacity ?? 1);
-      ctx.font = "600 " + font + "px Inter, system-ui, sans-serif";
-      if (node.rank) {
-        ctx.textAlign = node.x > .5 ? "left" : "right";
-        ctx.fillStyle = node.color;
-        ctx.fillText(node.rank, p.x + (align === "row" ? -19 : node.x > .5 ? 8 : -8), p.y + 4);
-      }
-      if (!title) return;
-      let text = title;
-      const maxWidth = width * (align === "row" ? .52 : align === "center" ? .36 : .21);
-      while (ctx.measureText(text).width > maxWidth && text.length > 2) text = text.slice(0, -2) + "…";
-      const x = p.x + (align === "left" ? -13 : align === "center" ? 0 : 13);
-      const y = p.y + (align === "center" ? 19 : 4);
-      ctx.textAlign = align === "left" ? "right" : align === "center" ? "center" : "left";
-      ctx.lineWidth = 4;
-      ctx.strokeStyle = "#1a1425";
-      ctx.strokeText(text, x, y);
-      ctx.fillStyle = "#f4ebfc";
-      ctx.fillText(text, x, y);
-      const textWidth = ctx.measureText(text).width;
-      box.label = { left: x - (align === "left" ? textWidth : align === "center" ? textWidth / 2 : 0), y, width: textWidth, font };
+    function distanceToLine(p, a, b) {
+      const dx = b.x - a.x, dy = b.y - a.y;
+      const length = dx * dx + dy * dy;
+      const t = length ? clamp(((p.x - a.x) * dx + (p.y - a.y) * dy) / length, 0, 1) : 0;
+      return Math.hypot(p.x - a.x - t * dx, p.y - a.y - t * dy);
     }
 
-    function hit(x, y) {
-      const at = {
-        x: (x - width * (.5 + panX)) / zoom + width * .5,
-        y: (y - height * (.5 + panY)) / zoom + height * .5,
-      };
-      let closest;
+    function targetAt(p) {
+      let node;
       let best = Infinity;
-      let bestNamed;
-      let namedDistance = Infinity;
-      for (const box of boxes) {
-        const distance = Math.hypot(box.x - at.x, box.y - at.y);
-        if (distance < box.radius && distance < best) {
-          closest = box;
+      for (const hit of hits) {
+        const label = hit.label;
+        if (label && p.x >= label.x && p.x <= label.right && p.y >= label.y - 12 && p.y <= label.y + 3) return hit;
+        const distance = Math.hypot(p.x - hit.x, p.y - hit.y);
+        if (distance < hit.radius && distance < best) {
           best = distance;
-        }
-        if (box.named && distance < box.radius && distance < namedDistance) {
-          bestNamed = box;
-          namedDistance = distance;
+          node = hit;
         }
       }
-      if (bestNamed) return bestNamed;
-      for (const box of boxes) {
-        const label = box.label;
-        if (label && at.x >= label.left && at.x <= label.left + label.width &&
-            at.y >= label.y - label.font && at.y <= label.y + 3) return box;
+      if (node) return node;
+      let edge, strong;
+      best = 5;
+      let strongDistance = 4.2;
+      for (const stroke of strokes) {
+        const { a, mid, b } = stroke;
+        if (p.x < Math.min(a.x, mid.x, b.x) - 5 || p.x > Math.max(a.x, mid.x, b.x) + 5 ||
+            p.y < Math.min(a.y, mid.y, b.y) - 5 || p.y > Math.max(a.y, mid.y, b.y) + 5) continue;
+        const midpoint = curvePoint(a, mid, b, .5);
+        const distance = Math.min(distanceToLine(p, a, midpoint), distanceToLine(p, midpoint, b));
+        if (distance < best) { best = distance; edge = stroke; }
+        if (stroke.featured && distance < strongDistance) { strongDistance = distance; strong = stroke; }
       }
-      if (closest) return closest;
-      let featuredEdge;
-      let featuredDistance = 5;
-      best = 6;
-      for (const { edge, a, b, bend, featured } of strokes) {
-        if (at.x < Math.min(a.x, b.x) - 6 || at.x > Math.max(a.x, b.x) + 6 ||
-            at.y < Math.min(a.y, b.y) - Math.abs(bend) - 6 || at.y > Math.max(a.y, b.y) + Math.abs(bend) + 6) continue;
-        const steps = Math.max(8, Math.ceil(Math.hypot(b.x - a.x, b.y - a.y) / 14));
-        let previous = a;
-        for (let i = 1; i <= steps; i++) {
-          const p = along(a, b, bend, i / steps);
-          const distance = segmentDistance(at, previous, p);
-          previous = p;
-          if (featured && distance < featuredDistance) {
-            featuredEdge = edge;
-            featuredDistance = distance;
-          }
-          if (distance < best) {
-            closest = edge;
-            best = distance;
-          }
-        }
-      }
-      return featuredEdge ?? closest;
+      return strong ?? edge;
     }
 
-    function getTarget(event) {
-      const rect = canvas.getBoundingClientRect();
-      return hit(event.clientX - rect.left, event.clientY - rect.top);
+    function eventPoint(event) {
+      const r = canvas.getBoundingClientRect();
+      return { x: event.clientX - r.left, y: event.clientY - r.top };
     }
+
+    function setZoom(factor, point = { x: width * .5, y: height * .53 }) {
+      const next = clamp(camera.scale * factor, .19, 6);
+      const dx = point.x - width * .5, dy = point.y - height * .53;
+      forceFit = false;
+      aim({ x: camera.x + dx / camera.scale - dx / next, y: camera.y + dy / camera.scale - dy / next, scale: next }, false);
+    }
+
+    canvas.addEventListener("wheel", event => {
+      if (!event.ctrlKey && !event.metaKey) return;
+      event.preventDefault();
+      setZoom(Math.exp(-event.deltaY * .0026), eventPoint(event));
+    }, { passive: false });
 
     canvas.addEventListener("pointerdown", event => {
       if (!event.isPrimary || event.button !== 0) return;
-      const target = getTarget(event);
-      const draggable = event.pointerType !== "touch" || panEnabled;
-      pointer = {
-        id: event.pointerId, x: event.clientX, y: event.clientY, target, draggable, moved: false,
-        x0: panX, y0: panY, offset: offsets.get(target?.key) ?? { x: 0, y: 0 },
-      };
+      const at = eventPoint(event);
+      const target = targetAt(at);
+      const draggable = event.pointerType !== "touch" || panTouch;
+      pointer = { id: event.pointerId, at, target, node: target?.node, draggable, moved: false, camera: { ...camera } };
       if (draggable) canvas.setPointerCapture(event.pointerId);
     });
 
     canvas.addEventListener("pointermove", event => {
+      const at = eventPoint(event);
       if (pointer?.id !== event.pointerId) {
-        const target = getTarget(event);
-        if (target?.key !== hover?.key || target?.route !== hover?.route || target?.type !== hover?.type) {
-          hover = target;
-          canvas.toggleAttribute("data-target", Boolean(target));
-          invalidate();
-        }
+        hover = targetAt(at) ?? null;
+        canvas.toggleAttribute("data-target", Boolean(hover));
+        schedule();
         return;
       }
-      const dx = event.clientX - pointer.x;
-      const dy = event.clientY - pointer.y;
-      if (!pointer.moved && Math.hypot(dx, dy) < 5) return;
-      if (!pointer.moved && pointer.draggable) pause();
+      const dx = at.x - pointer.at.x, dy = at.y - pointer.at.y;
+      if (!pointer.moved && Math.hypot(dx, dy) < 4) return;
       pointer.moved = true;
       if (!pointer.draggable) return;
-      canvas.toggleAttribute("data-dragging", true);
-      if (pointer.target?.node) {
-        hover = pointer.target;
-        offsets.set(pointer.target.key, { x: pointer.offset.x + dx / width / zoom, y: pointer.offset.y + dy / height / zoom });
+      forceFit = false;
+      destination = null;
+      canvas.setAttribute("data-dragging", "");
+      if (pointer.node) {
+        const node = pointer.node;
+        node.x = node.fx = camera.x + (at.x - width * .5) / camera.scale;
+        node.y = node.fy = camera.y + (at.y - height * .53) / camera.scale;
+        simulation.alpha(Math.max(.62, simulation.alpha()));
       } else {
-        panX = clamp(pointer.x0 + dx / width, -2, 2);
-        panY = clamp(pointer.y0 + dy / height, -2, 2);
+        camera.x = pointer.camera.x - dx / camera.scale;
+        camera.y = pointer.camera.y - dy / camera.scale;
       }
-      invalidate();
+      heatDue = 0;
+      schedule();
     });
 
-    function endPointer(event, inspectTarget) {
+    function endPointer(event, click) {
       if (pointer?.id !== event.pointerId) return;
-      const { target, moved } = pointer;
-      pointer = undefined;
+      const { target, moved, node } = pointer;
+      pointer = null;
       canvas.removeAttribute("data-dragging");
-      if (inspectTarget && !moved && target?.node) inspect(target.node.id);
-      else if (inspectTarget && !moved && target?.route) inspectLink(target.route, target.type);
+      if (moved && node && !node.pinned) node.fx = node.fy = null;
+      if (click && !moved) {
+        if (target?.node) handlers.node(target.id);
+        else if (target?.edge) handlers.edge(target.edge, target.type);
+        else handlers.clear();
+      }
+      schedule();
     }
-
     canvas.addEventListener("pointerup", event => endPointer(event, true));
     canvas.addEventListener("pointercancel", event => endPointer(event, false));
-    canvas.addEventListener("pointerleave", () => {
-      if (pointer) return;
-      hover = undefined;
-      canvas.removeAttribute("data-target");
-      invalidate();
+    canvas.addEventListener("pointerleave", () => { hover = null; canvas.removeAttribute("data-target"); schedule(); });
+
+    const touchButton = document.getElementById("scene-pan");
+    touchButton.addEventListener("click", () => {
+      panTouch = !panTouch;
+      field.dataset.pan = String(panTouch);
+      touchButton.setAttribute("aria-pressed", String(panTouch));
     });
-
-    function zoomBy(multiplier) {
-      const previous = zoom;
-      zoom = clamp(zoom * multiplier, .55, 3.2);
-      panX = clamp(panX * zoom / previous, -2, 2);
-      panY = clamp(panY * zoom / previous, -2, 2);
-      invalidate();
-    }
-
-    function reset() {
-      panX = panY = 0;
-      zoom = 1;
-      offsets.clear();
-      hover = undefined;
-      located = undefined;
-      canvas.removeAttribute("data-target");
-      invalidate();
-    }
-
-    function locate(route, family) {
-      const key = route.key + family;
-      const graph = frames?.[2];
-      const edge = graph?.edges.get(key);
-      if (!edge || !width || !height) return;
-      const a = point(edge.from, graph.nodes.get(edge.from));
-      const b = point(edge.to, graph.nodes.get(edge.to));
-      const xSpan = Math.abs(b.x - a.x) / width;
-      const ySpan = Math.abs(b.y - a.y) / height;
-      zoom = clamp(Math.min(1.4, .67 / xSpan, .66 / ySpan), .55, 1.4);
-      panX = (.5 - (a.x + b.x) / (2 * width)) * zoom;
-      panY = (.48 - (a.y + b.y) / (2 * height)) * zoom;
-      located = { key, from: edge.from, to: edge.to, start: performance.now() };
-      hover = undefined;
-      invalidate();
-    }
-
-    panButton.addEventListener("click", () => {
-      panEnabled = !panEnabled;
-      field.dataset.pan = String(panEnabled);
-      panButton.setAttribute("aria-pressed", String(panEnabled));
-    });
-    document.getElementById("scene-plus").addEventListener("click", () => zoomBy(1.25));
-    document.getElementById("scene-minus").addEventListener("click", () => zoomBy(.8));
-    document.getElementById("scene-reset").addEventListener("click", reset);
-
+    document.getElementById("scene-plus").addEventListener("click", () => setZoom(1.24));
+    document.getElementById("scene-minus").addEventListener("click", () => setZoom(1 / 1.24));
+    document.getElementById("scene-reset").addEventListener("click", () => { forceFit = true; fit(); });
     field.addEventListener("keydown", event => {
       if (event.target !== field) return;
-      const move = { ArrowLeft: [.08, 0], ArrowRight: [-.08, 0], ArrowUp: [0, .08], ArrowDown: [0, -.08] }[event.key];
+      const move = { ArrowLeft: [-40, 0], ArrowRight: [40, 0], ArrowUp: [0, -40], ArrowDown: [0, 40] }[event.key];
       if (move) {
-        panX = clamp(panX + move[0], -2, 2);
-        panY = clamp(panY + move[1], -2, 2);
-        invalidate();
-      } else if (event.key === "+" || event.key === "=") zoomBy(1.25);
-      else if (event.key === "-") zoomBy(.8);
-      else if (event.key === "0") reset();
+        forceFit = false;
+        aim({ ...camera, x: camera.x + move[0] / camera.scale, y: camera.y + move[1] / camera.scale }, false);
+      } else if (event.key === "+" || event.key === "=") setZoom(1.24);
+      else if (event.key === "-") setZoom(1 / 1.24);
       else return;
       event.preventDefault();
     });
 
-    new ResizeObserver(invalidate).observe(canvas);
-    document.fonts.ready.then(invalidate);
-    return { update, setPosition, reset, locate };
+    new ResizeObserver(() => {
+      width = canvas.clientWidth;
+      height = canvas.clientHeight;
+      const ratio = Math.min(devicePixelRatio || 1, 2);
+      canvas.width = Math.round(width * ratio);
+      canvas.height = Math.round(height * ratio);
+      if (forceFit) fit(false);
+      heatDue = 0;
+      schedule();
+    }).observe(canvas);
+
+    new IntersectionObserver(([entry]) => {
+      visible = entry.isIntersecting;
+      if (visible) schedule();
+    }, { rootMargin: "30px" }).observe(field);
+    document.fonts.ready.then(schedule);
+
+    return {
+      show, setFocus, locate, pin, isPinned,
+      pause: value => { paused = value; schedule(); },
+      heat: value => { showHeat = value; heatDue = 0; schedule(); },
+    };
   }
 
-  window.SECOND_HOP_SCENE = passageScene;
+  const densityKernel = Array.from({ length: 30 }, (_, d) => Math.exp(-d / 10));
+  window.SECOND_HOP_SCENE = graphScene;
 })();

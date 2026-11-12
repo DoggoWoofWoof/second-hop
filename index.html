@@ -14,15 +14,15 @@
   <link rel="preload" href="assets/instrument-serif-italic.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="assets/site.css">
   <link rel="stylesheet" href="assets/experiments.css?v=4">
-  <link rel="stylesheet" href="assets/links.css?v=6">
-  <link rel="stylesheet" href="assets/flow.css?v=4">
+  <link rel="stylesheet" href="assets/galaxy.css?v=2">
   <script defer src="assets/examples.js"></script>
   <script defer src="assets/pipeline-data.js"></script>
-  <script defer src="assets/retrieval.js?v=2"></script>
-  <script defer src="assets/links.js?v=5"></script>
-  <script defer src="assets/scene.js?v=3"></script>
+  <script defer src="assets/retrieval.js?v=3"></script>
+  <script defer src="assets/vendor/d3.min.js"></script>
+  <script defer src="assets/links.js?v=6"></script>
+  <script defer src="assets/scene.js?v=5"></script>
   <script defer src="assets/experiments.js?v=4"></script>
-  <script defer src="assets/app.js?v=7"></script>
+  <script defer src="assets/app.js?v=9"></script>
 </head>
 <body id="top">
   <a class="skip-link" href="#main">Skip to content</a>
@@ -37,7 +37,7 @@
         <span>Second Hop</span>
       </a>
       <nav class="site-nav" aria-label="Main navigation">
-        <a href="#pipeline">Pipeline</a>
+        <a href="#pipeline">Graph</a>
         <a href="#recorded" data-open-research>Experiments</a>
         <a href="#method" data-open-research>Methods</a>
       </nav>
@@ -45,191 +45,111 @@
   </header>
 
 
-  <main id="main" class="shell flow" tabindex="-1">
-    <header class="flow-intro">
+  <main id="main" class="shell galaxy" tabindex="-1">
+    <header class="galaxy-heading">
       <div>
         <p class="overline"><span class="signal" aria-hidden="true"></span> Multi-hop retrieval playground</p>
         <h1>From corpus to <em>evidence.</em></h1>
       </div>
-      <p>Explore what happens between a search and the five passages it returns.</p>
+      <div class="galaxy-selectors">
+        <label for="flow-dataset-select">Dataset<select id="flow-dataset-select"></select></label>
+        <label for="flow-case">Question<select id="flow-case"></select></label>
+      </div>
     </header>
-
-    <div class="flow-workbench" id="pipeline" aria-label="Interactive retrieval pipeline">
-      <div class="flow-console">
-      <div class="flow-query" id="cases">
-        <div>
-          <span class="dataset" id="flow-dataset">2WikiMultihopQA</span>
-          <p id="flow-question">What nationality is the director of film Blood Street?</p>
-        </div>
-        <div class="flow-selectors">
-          <label for="flow-dataset-select">Dataset<select id="flow-dataset-select"></select></label>
-          <label for="flow-case">Question<select id="flow-case"></select></label>
-        </div>
+    <section class="galaxy-lab" id="pipeline" aria-label="Interactive passage graph" aria-busy="true">
+      <p class="galaxy-question" id="flow-question"></p>
+      <p id="graph-loading" class="galaxy-loading" role="status">Loading the passage graph…</p>
+      <div id="graph-error" class="galaxy-loading" hidden>
+        <p>The graph couldn’t load.</p><button type="button" class="ghost-button" id="graph-retry">Try again</button>
       </div>
-
-      <div class="flow-navigation">
-        <div class="flow-actions">
-          <div class="flow-step-actions">
-            <button type="button" class="ghost-button flow-back" id="flow-back" aria-label="Previous stage">←</button>
-            <button type="button" class="ghost-button" id="flow-play">Play pipeline</button>
-            <button type="button" class="ghost-button flow-next" id="flow-next" aria-label="Next stage">→</button>
-          </div>
-          <button type="button" class="ghost-button flow-tune" id="flow-tune" aria-expanded="false" aria-controls="flow-settings">Settings <span aria-hidden="true">⌄</span></button>
-        </div>
-        <div id="flow-settings" class="flow-settings" hidden>
-          <label for="flow-budget">Search budget<select id="flow-budget"><option value="5">5 hits</option><option value="25">25 hits</option><option value="100">100 hits</option><option value="200">200 hits</option></select></label>
-          <fieldset class="filters"><legend>Use these links</legend>
-            <label><input type="checkbox" data-family="S" checked><span class="family-s">Hyperlinks</span></label>
-            <label><input type="checkbox" data-family="R" checked><span class="family-r">Title rules</span></label>
-            <label><input type="checkbox" data-family="N" checked><span class="family-n">Shared names</span></label>
-            <label><input type="checkbox" data-family="K" checked><span class="family-k">Semantic</span></label>
-          </fieldset>
-          <label for="flow-boost">Link boost <output id="flow-boost-value" for="flow-boost">1×</output><input id="flow-boost" type="range" min="0" max="2" step="0.5" value="1"></label>
-        </div>
-        <div class="flow-timeline">
-          <label class="sr-only" for="flow-scrub">Pipeline timeline</label>
-          <input id="flow-scrub" type="range" min="0" max="4" step="0.01" value="0" aria-controls="flow-visual" disabled>
-          <nav class="flow-steps" aria-label="Pipeline stages">
-            <button type="button" data-stage="corpus" aria-controls="corpus" aria-current="step"><span>Corpus</span><strong id="step-corpus">—</strong></button>
-            <button type="button" data-stage="lab" aria-controls="lab"><span>Search</span><strong id="step-search">—</strong></button>
-            <button type="button" data-stage="links" aria-controls="links"><span>Links</span><strong id="step-links">—</strong></button>
-            <button type="button" data-stage="pool" aria-controls="pool"><span>Shortlist</span><strong id="step-pool">—</strong></button>
-            <button type="button" data-stage="rankers" aria-controls="rankers"><span>Top five</span><strong id="step-results">—</strong></button>
-          </nav>
-        </div>
-      </div>
-      </div>
-
-      <p class="sr-only" id="flow-stage-status" aria-live="polite"></p>
-      <div class="flow-surface" id="flow-surface" aria-busy="true">
-        <div class="flow-loading" id="flow-loading" role="status">Loading the walkthrough…</div>
-        <div class="flow-loading" id="flow-error" hidden>
-          <p>The passages for this question couldn’t load.</p><button type="button" class="ghost-button" id="flow-retry">Try again</button>
-        </div>
-
-        <figure class="flow-visual" id="flow-visual" hidden>
-          <figcaption class="visual-head">
-            <h2 id="scene-title">The search space</h2>
-            <span id="scene-count" class="scene-count"></span>
-          </figcaption>
-          <div class="visual-field" id="scene-field" tabindex="0" role="group" aria-label="Passage graph" aria-describedby="scene-keys">
-            <canvas id="pipeline-canvas" aria-hidden="true"></canvas>
-            <p class="sr-only" id="scene-keys">Use arrow keys to pan the graph, and plus or minus to zoom. Use the lists below to inspect passages and connections.</p>
-            <div class="scene-tools" role="group" aria-label="Graph controls">
-              <button type="button" id="scene-pan" aria-pressed="false" title="Enable touch dragging">Drag</button>
-              <button type="button" id="scene-minus" aria-label="Zoom out" title="Zoom out">−</button>
-              <button type="button" id="scene-plus" aria-label="Zoom in" title="Zoom in">+</button>
-              <button type="button" id="scene-reset" title="Reset zoom and node positions">Fit</button>
+      <div class="galaxy-grid" id="graph-workspace" hidden>
+        <figure class="galaxy-card">
+          <figcaption class="galaxy-toolbar">
+            <div>
+              <h2 id="graph-title">Search neighbourhood</h2>
+              <p id="graph-scope"></p>
             </div>
+            <div class="galaxy-actions">
+              <button type="button" class="ghost-button" id="graph-heat" aria-pressed="true" title="Colour the graph by how many passages are nearby">Density</button>
+              <button type="button" class="ghost-button" id="graph-pause" aria-pressed="false">Pause</button>
+              <button type="button" class="galaxy-primary" id="graph-shrink" aria-pressed="false">Shrink pool <span aria-hidden="true">↘</span></button>
+            </div>
+          </figcaption>
+          <div class="galaxy-families" id="graph-families" role="group" aria-label="Toggle link types"></div>
+          <div class="galaxy-field" id="scene-field" tabindex="0" role="group" aria-label="Floating passage graph" aria-describedby="scene-keys">
+            <canvas id="pipeline-canvas" aria-hidden="true"></canvas>
+            <p class="sr-only" id="scene-keys">Arrow keys pan. Plus and minus zoom. Find a passage in the inspector to explore the graph with the keyboard.</p>
+            <dl class="galaxy-stats" aria-label="Visible graph statistics">
+              <div><dt>Passages</dt><dd id="graph-nodes">—</dd></div>
+              <div><dt>Connections</dt><dd id="graph-edges">—</dd></div>
+              <div><dt title="Share of possible passage pairs joined by at least one enabled link">Link density</dt><dd id="graph-density">—</dd></div>
+            </dl>
+            <div class="galaxy-empty" id="graph-empty" hidden>Choose a seed to build a shortlist.</div>
+            <div class="scene-tools" role="group" aria-label="Graph navigation">
+              <button type="button" id="scene-pan" aria-pressed="false" title="Enable touch dragging">Drag</button>
+              <button type="button" id="scene-minus" aria-label="Zoom out">−</button>
+              <button type="button" id="scene-plus" aria-label="Zoom in">+</button>
+              <button type="button" id="scene-reset" title="Fit the cluster to the view">Fit</button>
+            </div>
+            <div class="galaxy-heat-key" id="graph-heat-key"><span aria-hidden="true"></span> More passages nearby</div>
+            <button type="button" class="graph-open-passage" id="graph-open-passage" hidden></button>
           </div>
-          <div class="visual-footer">
-            <p id="scene-note"></p>
-            <div class="scene-legend" id="scene-legend" aria-label="Graph legend"></div>
+          <div class="galaxy-footer">
+            <p id="graph-hint">Drag a passage or the background. Click a dot or a line to inspect it.</p>
           </div>
         </figure>
 
-        <section class="flow-panel" id="corpus" data-flow-panel aria-label="Benchmark snapshot" hidden>
-          <p class="flow-description" id="corpus-detail"></p>
-        </section>
-
-        <section class="flow-panel" id="lab" data-flow-panel aria-labelledby="search-title" hidden>
-          <div class="flow-panel-head"><div><h2 id="search-title">Starting passages</h2><p class="flow-description" id="search-summary"></p></div>
-            <a class="section-link" href="https://doi.org/10.1145/1571941.1572114">How rank fusion works ↗</a></div>
-          <ol class="flow-rows" id="search-rows"></ol>
-          <div class="search-actions">
-            <button type="button" class="ghost-button" id="search-all" aria-expanded="false" hidden></button>
-            <button type="button" class="ghost-button" id="search-reset" hidden>Restore all seeds</button>
-          </div>
-        </section>
-
-        <section class="flow-panel" id="links" data-flow-panel aria-labelledby="links-title" hidden>
-          <div class="flow-panel-head">
-            <div><h2 id="links-title">Inspect a connection</h2><p class="flow-description" id="link-stage-summary"></p></div>
-            <div class="link-heading-actions">
-              <a class="section-link" id="wire-example" href="?case=blood-street#links">See all four on one pair <span aria-hidden="true">↗</span></a>
-              <a class="section-link" href="#shortlist">See the shortlist <span aria-hidden="true">→</span></a>
+        <aside class="galaxy-inspector" aria-label="Passages and search controls">
+          <nav class="inspector-tabs" aria-label="Graph panels">
+            <button type="button" data-panel="inspect" aria-controls="inspect" aria-pressed="true">Inspect</button>
+            <button type="button" data-panel="lab" aria-controls="lab" aria-pressed="false">Seeds</button>
+            <button type="button" data-panel="rankers" aria-controls="rankers" aria-pressed="false">Top five</button>
+          </nav>
+          <section class="inspector-panel" id="inspect" aria-label="Inspect a passage">
+            <label class="galaxy-search" for="passage-find">Find a passage<input id="passage-find" type="search" autocomplete="off" placeholder="Search the visible cluster"></label>
+            <ul class="passage-matches" id="passage-matches" hidden></ul>
+            <div class="inspector-placeholder" id="inspect-empty" hidden>
+              <h2>Explore a connection</h2><p>Pick a dot or a line in the graph.</p>
             </div>
-          </div>
-          <div class="link-bench-grid">
-            <div id="wire-types" class="wire-types" role="group" aria-label="Link types from the current search hits"></div>
-            <div class="wire-card">
-              <div class="wire-route" id="wire-route">
-                <div class="wire-diagram">
-                  <a class="wire-node" id="wire-from" href="#evidence"><strong></strong><small></small></a>
-                  <div class="wire-tracks" id="wire-tracks" role="group" aria-label="Link types connecting these passages"></div>
-                  <a class="wire-node" id="wire-to" href="#evidence"><strong></strong><small></small></a>
-                </div>
-                <div class="wire-controls">
-                  <label for="wire-pair">Connection</label>
-                  <select id="wire-pair"></select>
-                </div>
-                <div class="wire-actions">
-                  <button class="ghost-button" type="button" id="wire-replay">Replay link <span aria-hidden="true">↻</span></button>
-                  <button class="ghost-button" type="button" id="wire-locate">Show on graph ↑</button>
-                  <span class="lab-note" id="wire-path-count"></span>
-                </div>
+            <article id="passage-inspector" hidden>
+              <div class="inspect-passage-head">
+                <div><p class="inspect-meta" id="inspect-meta"></p><h2 id="inspect-title"></h2></div>
+                <button type="button" class="ghost-button" id="inspect-pin" aria-pressed="false" title="Pin this passage in place">Pin</button>
               </div>
-              <div id="wire-empty" class="wire-empty" hidden>
-                <strong id="wire-empty-title"></strong>
-                <p id="wire-empty-note"></p>
-                <a class="section-link" href="?case=blood-street#links">Compare all four in Blood Street <span aria-hidden="true">↗</span></a>
+              <div id="inspect-edge" class="inspect-edge" hidden></div>
+              <p id="inspect-body" class="inspect-body"></p>
+              <div class="inspect-sources"><a id="inspect-source" href="https://en.wikipedia.org/" target="_blank" rel="noopener">Wikipedia ↗</a><a href="assets/passages/sources.txt" target="_blank" rel="noopener">Passage credits ↗</a></div>
+              <div class="inspect-connections-head">
+                <h3 id="inspect-count">Connections</h3>
+                <button type="button" class="ghost-button" id="inspect-clear" hidden>Clear filter</button>
               </div>
+              <p class="inspect-instruction" id="inspect-instruction">Click a highlighted phrase to trace it to other passages.</p>
+              <a class="section-link inspect-back" href="#scene-field">Back to graph ↑</a>
+              <ul class="inspect-connections" id="inspect-connections"></ul>
+              <button type="button" class="ghost-button" id="inspect-more" hidden></button>
+            </article>
+          </section>
+          <section class="inspector-panel" id="lab" aria-labelledby="seed-heading" hidden>
+            <h2 id="seed-heading">Starting passages</h2>
+            <div class="inspector-settings">
+              <label for="flow-budget">Seed budget<select id="flow-budget"><option value="5">5 hits</option><option value="25">25 hits</option><option value="100">100 hits</option><option value="200">200 hits</option></select></label>
+              <label for="graph-depth">Neighbourhood<select id="graph-depth"><option value="25">25 hits + neighbours</option><option value="100">100 hits + neighbours</option><option value="200">200 hits + neighbours</option></select></label>
             </div>
-            <div class="wire-proof" id="wire-proof" aria-live="polite">
-              <h4 id="wire-proof-title"></h4>
-              <p id="wire-how"></p>
-              <div id="wire-evidence"></div>
-              <button type="button" class="ghost-button" id="wire-toggle"></button>
-            </div>
-          </div>
-        </section>
-
-        <section class="flow-panel" id="pool" data-flow-panel aria-labelledby="shortlist" hidden>
-          <div class="flow-panel-head"><div><h2 id="shortlist">Shortlist breakdown</h2><p class="flow-description" id="pool-summary"></p></div></div>
-          <div class="shortlist-layout">
-            <div>
-              <div class="pool-scale">
-                <div class="pool-scale-label"><span>Full corpus</span><span id="pool-corpus-total"></span></div>
-                <div class="pool-scale-track" aria-hidden="true"><span id="pool-share-bar"></span></div>
-              </div>
-              <div class="pool-chart" id="pool-chart" aria-hidden="true"><span id="pool-seed-bar"></span><span id="pool-linked-bar"></span></div>
-              <dl class="pool-counts"><div><dt>Search hits</dt><dd id="pool-seed-total"></dd></div><div><dt>Linked neighbours</dt><dd id="pool-linked-total"></dd></div><div><dt>In the shortlist</dt><dd id="pool-total"></dd></div></dl>
-            </div>
-            <div><h3 class="shortlist-subtitle">Supporting passages</h3><ul class="flow-rows" id="pool-rows"></ul></div>
-          </div>
-        </section>
-
-        <section class="flow-panel" id="rankers" data-flow-panel aria-labelledby="finish-title" hidden>
-          <div class="flow-panel-head"><div><h2 id="finish-title">Inspect the results</h2><p class="flow-description" id="finish-summary"></p></div>
-            <div class="view-tabs flow-rank-tabs" role="group" aria-label="Compare ranking methods">
-              <button type="button" id="finish-base" aria-pressed="false">Fused score</button><button type="button" id="finish-boosted" aria-pressed="true">With link boost</button>
-            </div></div>
-          <ol class="flow-rows" id="finish-rows"></ol>
-          <p class="lab-note finish-note">The demo adds a bonus from the strongest linked search hit. The benchmark’s supporting labels are used to check the result.</p>
-        </section>
-        <noscript><p class="flow-loading">Enable JavaScript to run the retrieval walkthrough.</p></noscript>
+            <p class="inspect-instruction" id="search-summary"></p>
+            <ol class="inspect-connections" id="search-rows"></ol>
+            <div class="inspector-buttons"><button type="button" class="ghost-button" id="search-all" hidden></button><button type="button" class="ghost-button" id="search-reset" hidden>Restore seeds</button></div>
+          </section>
+          <section class="inspector-panel" id="rankers" aria-labelledby="finish-title" hidden>
+            <h2 id="finish-title">Final top five</h2>
+            <p class="inspect-instruction" id="finish-summary"></p>
+            <label class="boost-setting" for="flow-boost">Link boost <output id="flow-boost-value" for="flow-boost">1×</output><input id="flow-boost" type="range" min="0" max="2" step="0.5" value="1"></label>
+            <ol class="inspect-connections" id="finish-rows"></ol>
+          </section>
+        </aside>
       </div>
-    </div>
+      <noscript><p class="galaxy-loading">Enable JavaScript to explore the passage graph.</p></noscript>
+    </section>
   </main>
-
-  <dialog class="flow-dialog evidence-dialog" id="evidence" aria-labelledby="passage-title">
-    <div class="dialog-head"><p class="overline" id="passage-kind">Passage</p><button type="button" class="ghost-button" id="evidence-close">Close <span aria-hidden="true">×</span></button></div>
-    <h2 id="passage-title"></h2>
-    <p class="passage-text" id="passage-text" aria-live="polite"></p>
-    <dl class="signal-strip" aria-label="First search ranks">
-      <div><dt>Words</dt><dd id="signal-words">—</dd></div>
-      <div><dt>Meaning</dt><dd id="signal-meaning">—</dd></div>
-      <div><dt>Fused rank</dt><dd id="signal-fused">—</dd></div>
-    </dl>
-    <p class="passage-path" id="passage-path"></p>
-    <p class="lab-note" id="passage-score"></p>
-    <label class="passage-route-label" id="passage-route-label" for="passage-route" hidden>Connections<select id="passage-route"></select></label>
-    <div class="passage-links" id="passage-links"></div>
-    <div class="dialog-actions"><a class="section-link" id="passage-source" href="https://en.wikipedia.org/" target="_blank" rel="noopener">Wikipedia article ↗</a>
-      <a class="section-link" href="assets/passages/sources.txt" target="_blank" rel="noopener">Passage credits ↗</a>
-      <button type="button" class="ghost-button" id="passage-seed" hidden></button>
-      <button type="button" class="ghost-button" id="passage-trace" hidden>Trace this connection →</button></div>
-  </dialog>
 
   <dialog class="flow-dialog research-dialog" id="research" aria-label="Recorded experiments and methods">
     <div class="dialog-head">
@@ -300,7 +220,7 @@
       <h2 id="method-title">Data and methods</h2>
       <div class="method-grid">
         <article><h3>First search</h3><p>Dense and sparse retrievers order the passages by meaning and words. <a href="https://doi.org/10.1145/1571941.1572114">Reciprocal rank fusion</a> combines those orders.</p></article>
-        <article><h3>Pool replay</h3><p>Each selected search hit contributes its direct neighbours from the enabled link types. Duplicate passages count once. The graph shows the current seeds, their neighbours, and the connections between them.</p></article>
+        <article><h3>Pool replay</h3><p>Each selected search hit contributes its direct neighbours from the enabled link types. Duplicate passages count once. The opening graph contains the neighbours of the first 25, 100, or 200 search hits. Shrinking keeps the active seeds and the passages they can reach. Link density counts each pair once. Large views draw fewer background lines; all enabled links still affect the layout and density.</p></article>
         <article><h3>Ranking replay</h3><p>The demo adds a bonus to each neighbour based on its best connected search hit. The bonus equals that hit’s fused score times the number of enabled link types on the connection, divided by four, times the chosen boost. The saved MLP and GNN runs used a fixed shortlist and seed 0.</p></article>
       </div>
       <div class="scale-band">

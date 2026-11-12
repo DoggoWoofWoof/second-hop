@@ -21,6 +21,7 @@
       passages,
       seeds: snapshot.seeds.map(id => passages.get(id)),
       edges: snapshot.edges,
+      neighbourhoods: new Map(),
     };
   }
 
@@ -62,5 +63,31 @@
     };
   }
 
-  window.SECOND_HOP_RETRIEVAL = { budgets, typesIn, familyMask, prepare, run };
+  function neighbourhood(trace, depth, enabled, result, shrunk) {
+    let scope = trace.neighbourhoods.get(depth);
+    if (!scope) {
+      const widest = run(trace, depth, familyKeys, 0);
+      scope = new Set([...widest.seedIds, ...widest.origins.keys()]);
+      trace.neighbourhoods.set(depth, scope);
+    }
+    const ids = shrunk ? new Set([...result.seedIds, ...result.origins.keys()]) : scope;
+    const pairs = [];
+    const incident = new Map();
+    const mask = familyMask(enabled);
+    for (const [a, b, types, cosine] of trace.edges) {
+      if (!ids.has(a) || !ids.has(b)) continue;
+      const pair = {
+        key: a + "-" + b, a: trace.passages.get(a), b: trace.passages.get(b),
+        types: typesIn(types), active: typesIn(types & mask), cosine,
+      };
+      pairs.push(pair);
+      for (const id of [a, b]) {
+        if (!incident.has(id)) incident.set(id, []);
+        incident.get(id).push(pair);
+      }
+    }
+    return { ids, nodes: Array.from(ids, id => trace.passages.get(id)), pairs, incident, scope: scope.size };
+  }
+
+  window.SECOND_HOP_RETRIEVAL = { budgets, typesIn, familyMask, prepare, run, neighbourhood };
 })();
