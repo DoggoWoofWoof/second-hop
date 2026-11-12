@@ -2,11 +2,12 @@
   "use strict";
 
   const examples = window.SECOND_HOP_EXAMPLES;
+  const pipeline = window.SECOND_HOP_PIPELINE;
   const families = {
-    S: { name: "hyperlinks", color: "#8cdbdf", dash: [] },
-    R: { name: "title rules", color: "#ed9ebd", dash: [7, 5] },
-    N: { name: "shared names", color: "#c5d990", dash: [2, 5] },
-    K: { name: "semantic links", color: "#bbabff", dash: [9, 4, 2, 4] },
+    S: { label: "Hyperlink", color: "#8cdbdf", dash: [] },
+    R: { label: "Title rule", color: "#ed9ebd", dash: [7, 5] },
+    N: { label: "Shared name", color: "#c5d990", dash: [2, 5] },
+    K: { label: "Semantic link", color: "#bbabff", dash: [9, 4, 2, 4] },
   };
   const rankOrder = (a, b) => (a.rank ?? Infinity) - (b.rank ?? Infinity);
   const formatNumber = new Intl.NumberFormat("en-US");
@@ -25,6 +26,9 @@
   const supports = byId("support-list");
   const meter = byId("reach-meter");
   const source = byId("passage-source");
+  const proof = byId("link-proof");
+  const choices = byId("link-choices");
+  const replay = byId("replay-links");
   const context = canvas.getContext("2d");
 
   let sample;
@@ -34,8 +38,12 @@
   let supportNodes;
   let graphNodes;
   let supportButtons;
+  let focusedLink;
   let traceFrame = 0;
   const caseButtons = new Map();
+
+  const enabledFamilies = () => filters.filter(input => input.checked && !input.disabled).map(input => input.dataset.family);
+  const wikiURL = window.SECOND_HOP_ARTICLE_URL;
 
   function assessReach() {
     const starts = new Set(sample.nodes.filter(node => node.rank !== null && node.rank <= 5).map(node => node.id));
@@ -43,8 +51,7 @@
     const incoming = new Map();
 
     if (mode === "links") {
-      for (const filter of filters.filter(input => input.checked && !input.disabled)) {
-        const family = filter.dataset.family;
+      for (const family of enabledFamilies()) {
         for (const [a, b] of sample.edges[family]) {
           if (starts.has(a) === starts.has(b)) continue;
           const [from, to] = starts.has(a) ? [a, b] : [b, a];
@@ -208,17 +215,114 @@
     }
 
     selectNode(selected);
+    replay.disabled = !enabledFamilies().length;
+    if (animate) playTrace();
+    document.dispatchEvent(new CustomEvent("secondhop:state", { detail: { sample, families: enabledFamilies() } }));
+  }
+
+  function playTrace() {
     cancelAnimationFrame(traceFrame);
     drawGraph();
-    if (animate && !reduceMotion.matches && reach.edges.some(edge => graphNodes.get(edge.to).node.supporting)) {
+    if (!reduceMotion.matches && reach.edges.length) {
       const start = performance.now();
       const trace = now => {
-        const progress = reduceMotion.matches ? 1 : Math.max(0, Math.min((now - start) / 800, 1));
+        const progress = reduceMotion.matches ? 1 : Math.max(0, Math.min((now - start) / 1050, 1));
         drawGraph(progress);
         if (progress < 1) traceFrame = requestAnimationFrame(trace);
       };
       traceFrame = requestAnimationFrame(trace);
     }
+  }
+
+  function excerpt(text, term) {
+    const index = text.toLowerCase().indexOf(term.toLowerCase());
+    if (index < 0) return null;
+    const quote = document.createElement("blockquote");
+    const highlight = document.createElement("mark");
+    const start = Math.max(0, index - 70);
+    const end = Math.min(text.length, index + term.length + 92);
+    highlight.textContent = text.slice(index, index + term.length);
+    quote.append(start ? `…${text.slice(start, index)}` : text.slice(start, index), highlight,
+      text.slice(index + term.length, end) + (end < text.length ? "…" : ""));
+    return quote;
+  }
+
+  function describeLink(origin, target, family) {
+    const key = [origin.id, target.id].sort((a, b) => a - b).join("-");
+    const details = pipeline[sample.id].linkDetails[key];
+    if (family === "K") {
+      return { explanation: `Passage embeddings have a recorded cosine similarity of ${details.cosine.toFixed(3)}. Each passage links to its three closest neighbours by meaning.` };
+    }
+    if (family === "N") {
+      const names = details?.names ?? [];
+      return {
+        explanation: names.length ? `The named-entity tagger found ${formatList.format(names.map(name => `“${name}”`))} in both passages.`
+          : "The named-entity tagger found a person, place, or other entity in both passages.",
+        quote: names.length ? excerpt(origin.text, names[0]) : null,
+      };
+    }
+    const quoteFromOrigin = excerpt(origin.text, target.title);
+    const quoteFromTarget = excerpt(target.text, origin.title);
+    if (family === "S") {
+      return { explanation: "The benchmark corpus records a Wikipedia hyperlink between these two articles.", quote: quoteFromOrigin || quoteFromTarget,
+        quotedBy: quoteFromOrigin ? origin.title : target.title };
+    }
+    if (origin.title === target.title) return { explanation: "The two passages come from the same Wikipedia article." };
+    if (quoteFromOrigin) return { explanation: `“${target.title}” appears in the text of “${origin.title}”.`, quote: quoteFromOrigin, quotedBy: origin.title };
+    if (quoteFromTarget) return { explanation: `“${origin.title}” appears in the text of “${target.title}”.`, quote: quoteFromTarget, quotedBy: target.title };
+    return { explanation: "The title-rule graph links these passages using article titles and their normalized forms." };
+  }
+
+  function showLink(edge, family, control) {
+    focusedLink = { edge, family };
+    for (const choice of choices.children) choice.setAttribute("aria-pressed", String(choice === control));
+    const origin = graphNodes.get(edge.from).node;
+    const target = graphNodes.get(edge.to).node;
+    const { explanation, quote, quotedBy = origin.title } = describeLink(origin, target, family);
+    const content = byId("link-explanation");
+    const summary = document.createElement("p");
+    summary.textContent = explanation;
+    const actions = document.createElement("div");
+    actions.className = "proof-actions";
+    const sourceLink = document.createElement("a");
+    sourceLink.href = wikiURL(quotedBy);
+    sourceLink.target = "_blank";
+    sourceLink.rel = "noopener";
+    sourceLink.textContent = `${quotedBy} ↗`;
+    const trace = document.createElement("a");
+    trace.href = "#lab";
+    trace.textContent = "Trace on map ↑";
+    trace.addEventListener("click", playTrace);
+    actions.append(sourceLink, trace);
+    content.replaceChildren(summary, ...(quote ? [quote] : []), actions);
+    byId("map-route").textContent = `${origin.title} → ${target.title} · ${families[family].label}`;
+  }
+
+  function showIncoming(node) {
+    focusedLink = null;
+    choices.replaceChildren();
+    const incoming = reach.incoming.get(node.id);
+    proof.hidden = !incoming;
+    const route = byId("map-route");
+    if (!incoming) {
+      route.textContent = status(node) === "start" ? `${node.title} · starting passage` : `${node.title} · outside the current reach`;
+      return;
+    }
+    const multipleOrigins = incoming.length > 1;
+    incoming.sort((a, b) => rankOrder(graphNodes.get(a.from).node, graphNodes.get(b.from).node));
+    for (const edge of incoming) {
+      for (const family of edge.families) {
+        const choice = button(`link-choice family-${family.toLowerCase()}`);
+        choice.textContent = families[family].label;
+        if (multipleOrigins) choice.textContent += ` · ${graphNodes.get(edge.from).node.title}`;
+        choice.addEventListener("click", () => {
+          showLink(edge, family, choice);
+          drawGraph();
+        });
+        choices.append(choice);
+      }
+    }
+    showLink(incoming[0], incoming[0].families[0], choices.firstElementChild);
   }
 
   function selectNode(id) {
@@ -232,13 +336,13 @@
     byId("passage-rank").textContent = node.rank === null ? rankLabel(node) : `First search ${rankLabel(node)}`;
     byId("passage-title").textContent = node.title;
     byId("passage-text").textContent = node.text;
+    const [words, meaning] = pipeline[sample.id].signals[node.id];
+    byId("signal-words").textContent = words === null ? "—" : `#${formatNumber.format(words)}`;
+    byId("signal-meaning").textContent = meaning === null ? "—" : `#${formatNumber.format(meaning)}`;
+    byId("signal-fused").textContent = node.rank === null ? "—" : rankLabel(node);
     byId("passage-path").dataset.state = state;
     if (state === "linked") {
-      const origins = reach.incoming.get(id).map(edge => {
-        const types = formatList.format(edge.families.map(family => families[family].name));
-        return `${graphNodes.get(edge.from).node.title} (${types})`;
-      });
-      byId("passage-path").textContent = `One link from ${formatList.format(origins)}.`;
+      byId("passage-path").textContent = "Reached in one hop from the first five results.";
     } else if (state === "start") {
       byId("passage-path").textContent = "This passage is one of the first five results.";
     } else {
@@ -246,8 +350,10 @@
         ? "No enabled link connects this passage directly to the first five results."
         : "This passage is outside the first five results.";
     }
-    source.href = `https://en.wikipedia.org/wiki/${encodeURIComponent(node.title.replaceAll(" ", "_"))}`;
+    source.href = wikiURL(node.title);
     source.setAttribute("aria-label", `Wikipedia article for ${node.title}`);
+    showIncoming(node);
+    drawGraph();
   }
 
   function drawGraph(progress = 1) {
@@ -262,21 +368,29 @@
     context.setTransform(scale, 0, 0, scale, 0, 0);
     context.clearRect(0, 0, width, height);
 
-    for (const edge of reach.edges) {
+    const visibleEdges = [...reach.edges].sort((a, b) => Number(a === focusedLink?.edge) - Number(b === focusedLink?.edge));
+    for (const edge of visibleEdges) {
       const origin = graphNodes.get(edge.from);
       const target = graphNodes.get(edge.to);
       const [x1, y1] = [width * origin.position[0] / 100, height * origin.position[1] / 100];
       const [x2, y2] = [width * target.position[0] / 100, height * target.position[1] / 100];
       const bend = (y1 + y2) / 2 - Math.min(67, 12 + Math.abs(x2 - x1) * 0.14);
       const midpoint = (x1 + x2) / 2;
-      const highlighted = target.node.supporting;
-      const { color, dash } = families[edge.families[0]];
+      const focused = edge === focusedLink?.edge;
+      const highlighted = focused || target.node.supporting;
+      const family = focused ? focusedLink.family : edge.families[0];
+      const { color, dash } = families[family];
+      const delay = (origin.node.rank - 1) * 0.035;
+      const t = progress === 1 ? 1 : Math.min(1, Math.max(0, (progress - delay) / (1 - delay)));
+      const remaining = 1 - t;
+      const pointX = remaining ** 2 * x1 + 2 * remaining * t * midpoint + t ** 2 * x2;
+      const pointY = remaining ** 2 * y1 + 2 * remaining * t * bend + t ** 2 * y2;
 
       context.beginPath();
       context.moveTo(x1, y1);
-      context.quadraticCurveTo(midpoint, bend, x2, y2);
-      context.strokeStyle = highlighted ? "#ffce8d" : color;
-      context.setLineDash(highlighted ? [] : dash);
+      context.quadraticCurveTo(x1 + (midpoint - x1) * t, y1 + (bend - y1) * t, pointX, pointY);
+      context.strokeStyle = focused ? color : highlighted ? "#ffce8d" : color;
+      context.setLineDash(focused || !highlighted ? dash : []);
       if (highlighted) {
         context.globalAlpha = 0.13;
         context.lineWidth = 10;
@@ -286,16 +400,13 @@
       context.lineWidth = highlighted ? 1.8 : 1.2;
       context.stroke();
 
-      if (highlighted) {
-        const inMotion = progress < 1;
-        const t = inMotion ? progress : 0.5;
-        const remaining = 1 - t;
-        const pointX = remaining ** 2 * x1 + 2 * remaining * t * midpoint + t ** 2 * x2;
-        const pointY = remaining ** 2 * y1 + 2 * remaining * t * bend + t ** 2 * y2;
+      if ((highlighted || progress < 1) && t > 0) {
+        const inMotion = t < 1;
         context.beginPath();
-        context.arc(pointX, pointY, inMotion ? 4 : 2.8, 0, 2 * Math.PI);
-        context.globalAlpha = 1;
-        context.fillStyle = "#ffe6c4";
+        context.arc(inMotion ? pointX : midpoint, inMotion ? pointY : (y1 + y2) / 4 + bend / 2,
+          highlighted ? (inMotion ? 4 : 2.6) : 2, 0, 2 * Math.PI);
+        context.globalAlpha = highlighted ? 1 : 0.65;
+        context.fillStyle = highlighted && !focused ? "#ffe6c4" : color;
         context.fill();
       }
     }
@@ -309,6 +420,22 @@
     mode = "links";
     renderReach(control.checked);
   }));
+  replay.addEventListener("click", () => {
+    if (mode === "search") {
+      mode = "links";
+      renderReach(true);
+    } else {
+      playTrace();
+    }
+  });
+  document.addEventListener("secondhop:links", ({ detail }) => {
+    for (const control of filters) control.checked = detail.includes(control.dataset.family);
+    mode = "links";
+    renderReach(true);
+  });
+  document.addEventListener("secondhop:passage", ({ detail }) => {
+    if (graphNodes.has(detail)) selectNode(detail);
+  });
   const requested = new URLSearchParams(window.location.search).get("case");
   buildCasePicker();
   openCase(examples.find(example => example.id === requested) ?? examples[0]);
