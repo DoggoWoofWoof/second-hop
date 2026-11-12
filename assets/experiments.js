@@ -2,8 +2,6 @@
   "use strict";
 
   const records = window.SECOND_HOP_PIPELINE;
-  const linkTypes = ["S", "R", "N", "K"];
-  const linkLabels = { S: "hyperlink", R: "title rule", N: "shared name", K: "semantic link" };
   const shortNames = { "2WikiMultihopQA": "2Wiki", HotpotQA: "HotpotQA", MuSiQue: "MuSiQue" };
   const fullScale = {
     "2Wiki": [5989847, "1,081.2", "98.7%", "0.018%"],
@@ -27,16 +25,9 @@
   };
   const byId = id => document.getElementById(id);
   const number = new Intl.NumberFormat("en-US");
-  const { articleURL } = window.SECOND_HOP_LINKS;
   const motion = window.matchMedia("(prefers-reduced-motion: reduce)");
-  const depthControls = [...document.querySelectorAll("[data-depth]")];
-  const recipeControls = [...document.querySelectorAll("[data-recipe]")];
-  const stageControls = [...document.querySelectorAll("[data-pool-stage]")];
   const timingControls = [...document.querySelectorAll("[data-timing]")];
   const benchmarkControls = [...document.querySelectorAll("[data-benchmark]")];
-  const poolPlay = byId("pool-play");
-  const canvas = byId("pool-canvas");
-  const context = canvas.getContext("2d");
   const messageGraph = byId("message-graph");
   const messageStatus = byId("message-status");
   const svg = "http://www.w3.org/2000/svg";
@@ -44,14 +35,8 @@
   let sample;
   let data;
   let dataset;
-  let depth = 5;
-  let mask = 15;
-  let stage = "pool";
-  let poolTimer = 0;
-  let poolFrame = 0;
   let timingMode = "end";
   let benchmarkDataset = "2Wiki";
-  let dots = [];
   let messageDots = [];
   let messageFrame = 0;
 
@@ -75,157 +60,11 @@
   function inspectPassage(node, className) {
     const anchor = el("a", className, node.title);
     anchor.href = "#evidence";
-    anchor.addEventListener("click", () => document.dispatchEvent(new CustomEvent("secondhop:passage", { detail: node.id })));
-    return anchor;
-  }
-
-  function poolReadout() {
-    const [size, held, edges] = data.pools[depth][mask];
-    const [, seedHeld] = data.pools[depth][0];
-    return { size, held, edges, seedHeld };
-  }
-
-  function renderPool() {
-    const { size, held, edges, seedHeld } = poolReadout();
-    const nodes = new Map(sample.nodes.map(node => [node.id, node]));
-    const keep = data.support.filter((_, i) => held & (1 << i)).length;
-    const added = size - depth;
-    const percent = (100 * size / data.corpus).toFixed(size / data.corpus < 0.01 ? 2 : 1);
-    byId("pool-case").textContent = sample.label;
-    byId("pool-corpus").textContent = number.format(data.corpus);
-    byId("pool-seeds").textContent = number.format(depth);
-    byId("pool-size").textContent = number.format(size);
-    byId("pool-change").textContent = `${keep} of ${data.support.length} supporting passages in the pool.`;
-    byId("pool-links").textContent = `${number.format(added)} neighbours added · ${number.format(edges)} distinct links within the pool · ${percent}% of the snapshot.`;
-
-    const active = linkTypes.filter((_, bit) => mask & (1 << bit));
-    byId("pool-evidence").replaceChildren(...data.support.map((id, index) => {
-      const node = nodes.get(id);
-      const item = el("li", "pool-evidence-row");
-      const flag = 1 << index;
-      const state = seedHeld & flag ? "start" : held & flag ? "linked" : "outside";
-      const info = el("div", "pool-evidence-info");
-      const first = node.rank === null ? "Outside the stored top 1,000" : `First search #${number.format(node.rank)}`;
-      const label = el("span", "pool-evidence-status", { start: "Search hit", linked: "Added by link", outside: "Outside pool" }[state]);
-      item.dataset.state = state;
-      info.append(inspectPassage(node, "pool-evidence-title"), el("small", "", first));
-      item.append(info, label);
-      if (state === "linked") {
-        const origin = active.map(family => ({ ...data.origins[id][family], family }))
-          .filter(candidate => candidate.rank <= depth).sort((a, b) => a.rank - b.rank)[0];
-        const note = el("p", "pool-origin", "via ");
-        const source = el("a", "", `${origin.title} #${number.format(origin.rank)}`);
-        source.href = articleURL(origin.title);
-        source.target = "_blank";
-        source.rel = "noopener";
-        note.append(source, ` · ${linkLabels[origin.family]}`);
-        item.append(note);
-      }
-      return item;
-    }));
-
-    pressed(depthControls, "depth", depth);
-    const noHyperlinks = sample.dataset === "MuSiQue";
-    recipeControls.find(control => control.dataset.recipe === "13").disabled = noHyperlinks;
-    recipeControls.find(control => control.dataset.recipe === "15").hidden = noHyperlinks;
-    pressed(recipeControls, "recipe", mask);
-    setStage(stage);
-  }
-
-  function poolLayout(count, seeds, isCorpus) {
-    const displayed = Math.min(180, count);
-    const seedDots = isCorpus ? 0 : Math.max(1, Math.round(displayed * seeds / count));
-    return Array.from({ length: 180 }, (_, index) => {
-      const angle = index * 2.399963;
-      const radius = Math.sqrt((index + 0.65) / displayed);
-      const span = isCorpus ? 0.49 : 0.19 + Math.min(0.21, displayed / 850);
-      return {
-        x: 0.5 + Math.cos(angle) * radius * span,
-        y: 0.46 + Math.sin(angle) * radius * (isCorpus ? 0.44 : 0.34),
-        alpha: Number(index < displayed),
-        color: isCorpus ? "#8e7aac" : index < seedDots ? "#bbabff" : "#ffce8d",
-      };
+    anchor.addEventListener("click", event => {
+      event.preventDefault();
+      document.dispatchEvent(new CustomEvent("secondhop:passage", { detail: node.id }));
     });
-  }
-
-  function paintPool() {
-    if (!context) return;
-    const { width, height } = canvas.getBoundingClientRect();
-    const ratio = Math.min(window.devicePixelRatio || 1, 2);
-    const pixelWidth = Math.round(width * ratio);
-    const pixelHeight = Math.round(height * ratio);
-    if (canvas.width !== pixelWidth) canvas.width = pixelWidth;
-    if (canvas.height !== pixelHeight) canvas.height = pixelHeight;
-    context.setTransform(ratio, 0, 0, ratio, 0, 0);
-    context.clearRect(0, 0, width, height);
-    for (const dot of dots) {
-      if (dot.alpha < 0.02) continue;
-      context.globalAlpha = dot.alpha;
-      context.fillStyle = dot.color;
-      context.beginPath();
-      context.arc(dot.x * width, dot.y * height, stage === "seeds" && depth === 5 ? 4.1 : 2.15, 0, 2 * Math.PI);
-      context.fill();
-    }
-  }
-
-  function setStage(next) {
-    stage = next;
-    pressed(stageControls, "poolStage", stage);
-    const { size } = poolReadout();
-    const captions = {
-      corpus: `${number.format(data.corpus)} passages in the benchmark snapshot`,
-      seeds: `${number.format(depth)} starting passages from the fused ranking`,
-      pool: `${number.format(depth)} starting passages + ${number.format(size - depth)} linked neighbours`,
-    };
-    byId("pool-stage-caption").textContent = captions[stage];
-    const count = stage === "corpus" ? data.corpus : stage === "seeds" ? depth : size;
-    const nextDots = poolLayout(count, depth, stage === "corpus");
-    const before = dots;
-    cancelAnimationFrame(poolFrame);
-    if (!before.length || motion.matches) {
-      dots = nextDots;
-      paintPool();
-      return;
-    }
-    const started = performance.now();
-    function move(now) {
-      const progress = motion.matches ? 1 : Math.max(0, Math.min(1, (now - started) / 650));
-      const eased = 1 - (1 - progress) ** 3;
-      dots = nextDots.map((dot, index) => {
-        const previous = before[index];
-        return {
-          x: previous.x + (dot.x - previous.x) * eased,
-          y: previous.y + (dot.y - previous.y) * eased,
-          alpha: previous.alpha + (dot.alpha - previous.alpha) * eased,
-          color: dot.alpha ? dot.color : previous.color,
-        };
-      });
-      paintPool();
-      if (progress < 1) poolFrame = requestAnimationFrame(move);
-    }
-    poolFrame = requestAnimationFrame(move);
-  }
-
-  function stopPoolReplay() {
-    clearTimeout(poolTimer);
-    poolTimer = 0;
-    poolPlay.textContent = "Replay pool build ↻";
-  }
-
-  function replayPool() {
-    if (poolTimer) {
-      stopPoolReplay();
-      return;
-    }
-    poolPlay.textContent = "Pause replay";
-    setStage("corpus");
-    poolTimer = window.setTimeout(() => {
-      setStage("seeds");
-      poolTimer = window.setTimeout(() => {
-        setStage("pool");
-        stopPoolReplay();
-      }, 1100);
-    }, 1050);
+    return anchor;
   }
 
   function rankLane(title, sub, hit, order, nodes) {
@@ -388,36 +227,15 @@
   }
 
   document.addEventListener("secondhop:state", ({ detail }) => {
-    const nextMask = linkTypes.reduce((value, key, bit) => value | (detail.families.includes(key) ? 1 << bit : 0), 0);
-    const changedCase = sample !== detail.sample;
-    if (!changedCase && nextMask === mask) return;
+    if (sample === detail.sample) return;
     sample = detail.sample;
     data = records[sample.id];
-    mask = nextMask;
-    stopPoolReplay();
-    stage = "pool";
-    renderPool();
-    if (!changedCase) return;
     dataset = shortNames[sample.dataset];
     benchmarkDataset = dataset;
     renderScale();
     renderRankings();
     renderTiming(false);
     renderBenchmark(false);
-  });
-  for (const control of depthControls) control.addEventListener("click", () => {
-    depth = Number(control.dataset.depth);
-    stopPoolReplay();
-    stage = "pool";
-    renderPool();
-  });
-  for (const control of recipeControls) control.addEventListener("click", () => {
-    const chosen = Number(control.dataset.recipe);
-    document.dispatchEvent(new CustomEvent("secondhop:links", { detail: linkTypes.filter((_, bit) => chosen & (1 << bit)) }));
-  });
-  for (const control of stageControls) control.addEventListener("click", () => {
-    stopPoolReplay();
-    setStage(control.dataset.poolStage);
   });
   for (const control of timingControls) control.addEventListener("click", () => {
     timingMode = control.dataset.timing;
@@ -427,8 +245,6 @@
     benchmarkDataset = control.dataset.benchmark;
     renderBenchmark(true);
   });
-  poolPlay.addEventListener("click", replayPool);
   byId("message-play").addEventListener("click", playMessages);
   byId("timing-play").addEventListener("click", () => renderTiming(true));
-  new ResizeObserver(paintPool).observe(canvas);
 })();

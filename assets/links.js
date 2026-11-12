@@ -16,13 +16,15 @@
     ["The Newcomers (film)", "The_Newcomers#Film"],
     ["The Newcomer in The Cabbage", "Vaniusha_The_Newcomer"],
   ]);
-  const articleURL = title => `https://en.wikipedia.org/wiki/${articlePaths.get(title) ?? encodeURIComponent(title.replaceAll(" ", "_"))}`;
+  const articleURL = (title, known = true) => known
+    ? `https://en.wikipedia.org/wiki/${articlePaths.get(title) ?? encodeURIComponent(title.replaceAll(" ", "_"))}`
+    : `https://en.wikipedia.org/wiki/Special:Search?search=${encodeURIComponent(title)}`;
   const edgeKey = (a, b) => a < b ? `${a}-${b}` : `${b}-${a}`;
   const formatList = new Intl.ListFormat("en", { type: "conjunction" });
   const svgNamespace = "http://www.w3.org/2000/svg";
   const motion = window.matchMedia("(prefers-reduced-motion: reduce)");
 
-  function excerpt(text, term) {
+  function excerpt(text = "", term) {
     const index = text.toLowerCase().indexOf(term.toLowerCase());
     if (index < 0) return null;
     const quote = document.createElement("blockquote");
@@ -35,10 +37,12 @@
     return quote;
   }
 
-  function describeLink(sample, origin, target, family) {
+  function describeLink(sample, origin, target, family, cosine) {
     const details = window.SECOND_HOP_PIPELINE[sample.id].linkDetails[edgeKey(origin.id, target.id)];
     if (family === "K") {
-      return { explanation: `Recorded cosine similarity between these two passages is ${details.cosine.toFixed(3)}.` };
+      const similarity = cosine ?? details?.cosine;
+      return { explanation: similarity === undefined ? "The saved graph connects these passages by semantic similarity."
+        : `Recorded cosine similarity between these two passages is ${similarity.toFixed(3)}.` };
     }
     if (family === "N") {
       const names = details?.names ?? [];
@@ -60,7 +64,7 @@
     return { explanation: "The title-rule graph links these passages using normalized article titles." };
   }
 
-  window.SECOND_HOP_LINKS = { families, articleURL, describeLink };
+  window.SECOND_HOP_LINKS = { families, articleURL };
 
   const byId = id => document.getElementById(id);
   const typeList = byId("wire-types");
@@ -70,6 +74,8 @@
   const buttons = new Map();
   let sample;
   let pairs = [];
+  let counts = {};
+  let previousBudget;
   let enabled = [];
   let family = "S";
   let selectedKey;
@@ -98,26 +104,8 @@
   }
 
   function comparePair(a, b) {
-    const hit = node => node.rank !== null && node.rank <= 5;
-    const useful = ({ from, to }) => hit(from) && to.supporting && !hit(to) ? 0 : from.supporting && to.supporting ? 1
-      : from.supporting || to.supporting ? 2 : 3;
-    return useful(a) - useful(b) || (a.from.rank ?? 1001) - (b.from.rank ?? 1001);
-  }
-
-  function collectPairs(example) {
-    const nodes = new Map(example.nodes.map(node => [node.id, node]));
-    const grouped = new Map();
-    for (const type of keys) {
-      for (const [a, b] of example.edges[type]) {
-        const key = edgeKey(a, b);
-        if (!grouped.has(key)) {
-          const [from, to] = [nodes.get(a), nodes.get(b)].sort((x, y) => (x.rank ?? 1001) - (y.rank ?? 1001));
-          grouped.set(key, { key, from, to, types: [] });
-        }
-        grouped.get(key).types.push(type);
-      }
-    }
-    return [...grouped.values()].sort(comparePair);
+    const priority = ({ from, to }) => to.supporting ? 0 : from.supporting ? 1 : 2;
+    return priority(a) - priority(b) || a.from.rank - b.from.rank || (a.to.rank || 1001) - (b.to.rank || 1001);
   }
 
   function makeTypeButtons() {
@@ -140,9 +128,9 @@
 
   function updatePoolControls() {
     for (const [type, { control, count }] of buttons) {
-      const total = sample.edges[type].length;
+      const total = counts[type];
       control.setAttribute("aria-pressed", String(type === family));
-      count.textContent = `${total} shown · ${enabled.includes(type) ? "In pool" : "Off"}`;
+      count.textContent = `${total.toLocaleString("en-US")} links · ${enabled.includes(type) ? "On" : "Off"}`;
     }
     const included = enabled.includes(family);
     toggle.hidden = family === "S" && sample.dataset === "MuSiQue";
@@ -165,7 +153,7 @@
     const element = byId(id);
     element.dataset.node = node.id;
     element.querySelector("strong").textContent = node.title;
-    element.querySelector("small").textContent = node.rank === null ? "Beyond rank #1,000" : `First search #${node.rank.toLocaleString("en-US")}`;
+    element.querySelector("small").textContent = node.rank ? `First search #${node.rank.toLocaleString("en-US")}` : "Beyond rank #1,000";
   }
 
   function replay() {
@@ -214,11 +202,11 @@
       return;
     }
     const { from, to } = pair;
-    const { explanation, quote } = describeLink(sample, from, to, family);
+    const { explanation, quote } = describeLink(sample, from, to, family, pair.cosine);
     const references = el("div", "wire-references");
-    for (const title of new Set([from.title, to.title])) {
-      const link = el("a", "wire-source", `${title} ↗`);
-      link.href = articleURL(title);
+    for (const node of from.title === to.title ? [from] : [from, to]) {
+      const link = el("a", "wire-source", `${node.title} ↗`);
+      link.href = articleURL(node.title, Boolean(node.text));
       link.target = "_blank";
       link.rel = "noopener";
       references.append(link);
@@ -242,7 +230,9 @@
       return;
     }
     selectedKey = pair.key;
-    pairControl.replaceChildren(...available.map(item => {
+    const options = available.slice(0, 18);
+    if (!options.includes(pair)) options.push(pair);
+    pairControl.replaceChildren(...options.map(item => {
       const option = el("option", "", `${item.from.title} → ${item.to.title}`);
       option.value = item.key;
       return option;
@@ -265,10 +255,17 @@
     render(true);
   });
   byId("wire-replay").addEventListener("click", replay);
+  document.addEventListener("secondhop:replay-link", replay);
+  document.addEventListener("secondhop:route", ({ detail }) => {
+    if (!detail) return;
+    selectedKey = detail.key;
+    selectType(detail.active[0]);
+  });
   for (const id of ["wire-from", "wire-to"]) {
-    byId(id).addEventListener("click", ({ currentTarget }) => document.dispatchEvent(
-      new CustomEvent("secondhop:passage", { detail: Number(currentTarget.dataset.node) }),
-    ));
+    byId(id).addEventListener("click", event => {
+      event.preventDefault();
+      document.dispatchEvent(new CustomEvent("secondhop:passage", { detail: Number(event.currentTarget.dataset.node) }));
+    });
   }
   toggle.addEventListener("click", () => {
     const next = enabled.includes(family) ? enabled.filter(type => type !== family) : [...enabled, family];
@@ -276,15 +273,21 @@
   });
   document.addEventListener("secondhop:state", ({ detail }) => {
     enabled = detail.families;
-    if (sample === detail.sample) {
+    const changedCase = sample !== detail.sample;
+    const budget = detail.result.seeds.length;
+    if (!changedCase && budget === previousBudget) {
       updatePoolControls();
       return;
     }
+    previousBudget = budget;
     sample = detail.sample;
-    pairs = collectPairs(sample);
+    pairs = [...detail.result.routes].sort(comparePair);
+    counts = Object.fromEntries(keys.map(type => [type, pairs.filter(pair => pair.types.includes(type)).length]));
     byId("wire-example").hidden = sample.id === "blood-street";
-    family = keys.find(type => sample.edges[type].length) ?? "S";
-    selectedKey = undefined;
+    if (changedCase) {
+      family = keys.find(type => counts[type]) ?? "S";
+      selectedKey = undefined;
+    }
     render(false);
   });
 })();

@@ -7,25 +7,27 @@
   <meta name="robots" content="noindex, nofollow">
   <meta name="theme-color" content="#100e19">
   <meta name="color-scheme" content="dark">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; font-src 'self'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'">
   <title>Second Hop · Multi-hop retrieval playground</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23100e19'/%3E%3Cpath d='M8 23Q15 8 24 9' stroke='%23ffce8d' fill='none' stroke-width='2'/%3E%3Ccircle cx='8' cy='23' r='3' fill='%23bbabff'/%3E%3Ccircle cx='24' cy='9' r='3' fill='%23ffce8d'/%3E%3C/svg%3E">
   <link rel="preload" href="assets/bricolage.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="assets/instrument-serif-italic.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="assets/site.css">
-  <link rel="stylesheet" href="assets/experiments.css">
-  <link rel="stylesheet" href="assets/links.css">
+  <link rel="stylesheet" href="assets/experiments.css?v=4">
+  <link rel="stylesheet" href="assets/links.css?v=5">
+  <link rel="stylesheet" href="assets/flow.css?v=3">
   <script defer src="assets/examples.js"></script>
   <script defer src="assets/pipeline-data.js"></script>
-  <script defer src="assets/links.js"></script>
-  <script defer src="assets/experiments.js?v=3"></script>
-  <script defer src="assets/app.js?v=3"></script>
+  <script defer src="assets/retrieval.js"></script>
+  <script defer src="assets/links.js?v=4"></script>
+  <script defer src="assets/experiments.js?v=4"></script>
+  <script defer src="assets/app.js?v=6"></script>
 </head>
 <body id="top">
   <a class="skip-link" href="#main">Skip to content</a>
   <header class="site-header">
     <div class="shell header-inner">
-      <a class="brand" href="#top" aria-label="Second Hop home">
+      <a class="brand" href="#corpus" aria-label="Second Hop home">
         <svg viewBox="0 0 32 32" aria-hidden="true" focusable="false">
           <rect x=".5" y=".5" width="31" height="31" rx="8" fill="none" stroke="currentColor" opacity=".25"/>
           <path d="M8 23Q15 8 24 9" fill="none" stroke="currentColor" stroke-width="1.5"/>
@@ -34,140 +36,106 @@
         <span>Second Hop</span>
       </a>
       <nav class="site-nav" aria-label="Main navigation">
-        <a class="nav-map" href="#lab">Map</a>
-        <a href="#links">Links</a>
-        <a href="#pool">Pool</a>
-        <a href="#rankers">Rankers</a>
-        <a href="#latency">Results</a>
+        <a href="#pipeline">Pipeline</a>
+        <a href="#recorded" data-open-research>Experiments</a>
+        <a href="#method" data-open-research>Methods</a>
       </nav>
     </div>
   </header>
 
-  <main id="main" tabindex="-1">
-    <div class="shell hero">
-      <div class="intro">
+
+  <main id="main" class="shell flow" tabindex="-1">
+    <header class="flow-intro">
+      <div>
         <p class="overline"><span class="signal" aria-hidden="true"></span> Multi-hop retrieval playground</p>
-        <h1>Follow the <em>missing link.</em></h1>
-        <p class="intro-copy">Follow the evidence a search leaves behind, then see what survives the shortlist and makes it into the top five.</p>
-        <div class="intro-actions">
-          <a class="primary-action" href="#lab">Explore the evidence <span aria-hidden="true">↘</span></a>
-          <a class="text-link" href="#pool">See the pool shrink <span aria-hidden="true">↓</span></a>
+        <h1>From corpus to <em>evidence.</em></h1>
+      </div>
+      <p>Follow a question from the first search to the final five passages.</p>
+    </header>
+
+    <div class="flow-workbench" id="pipeline" aria-label="Interactive retrieval pipeline">
+      <div class="flow-query" id="cases">
+        <div>
+          <span class="dataset" id="flow-dataset">2WikiMultihopQA</span>
+          <p id="flow-question">What nationality is the director of film Blood Street?</p>
         </div>
+        <label for="flow-case">Question<select id="flow-case"></select></label>
       </div>
 
-      <section class="lab" id="lab" aria-labelledby="map-title" tabindex="-1">
-        <div class="lab-head">
-          <div class="lab-meta">
-            <h2 id="map-title"><span class="map-symbol" aria-hidden="true"></span> Evidence map</h2>
-            <span class="dataset" id="dataset">2WikiMultihopQA</span>
+      <div class="flow-navigation">
+        <nav class="flow-steps" aria-label="Pipeline stages">
+          <button type="button" data-stage="corpus" aria-controls="corpus" aria-current="step"><span>Corpus</span><strong id="step-corpus">—</strong><small>passages</small></button>
+          <button type="button" data-stage="lab" aria-controls="lab"><span>Search</span><strong id="step-search">—</strong><small>initial hits</small></button>
+          <button type="button" data-stage="links" aria-controls="links"><span>Links</span><strong id="step-links">—</strong><small>added</small></button>
+          <button type="button" data-stage="pool" aria-controls="pool"><span>Pool</span><strong id="step-pool">—</strong><small>candidates</small></button>
+          <button type="button" data-stage="rankers" aria-controls="rankers"><span>Top five</span><strong id="step-results">—</strong><small>supporting</small></button>
+        </nav>
+        <div class="flow-actions">
+          <div class="flow-step-actions">
+            <button type="button" class="ghost-button flow-back" id="flow-back" aria-label="Previous stage">←</button>
+            <button type="button" class="ghost-button" id="flow-play">Play pipeline ▷</button>
+            <button type="button" class="ghost-button flow-next" id="flow-next">Next <span aria-hidden="true">→</span></button>
           </div>
-          <p class="question" id="question" aria-live="polite">What nationality is the director of film Blood Street?</p>
-          <div class="map-toolbar">
-            <div class="view-tabs" role="group" aria-label="Retrieval view">
-              <button type="button" data-mode="search" aria-pressed="false">First search</button>
-              <button type="button" data-mode="links" aria-pressed="true">Follow links</button>
-            </div>
-            <button type="button" class="ghost-button" id="replay-links">Replay links <span aria-hidden="true">↻</span></button>
-          </div>
+          <button type="button" class="ghost-button flow-tune" id="flow-tune" aria-expanded="false" aria-controls="flow-settings">Settings <span aria-hidden="true">⌄</span></button>
         </div>
-
-        <div class="scene">
-          <div class="plot" id="scene">
-            <canvas id="edges" aria-hidden="true"></canvas>
-            <div class="nodes" id="nodes" role="group" aria-label="Passages in the evidence map"></div>
-            <noscript><p class="no-js">In this example, Blood Street ranked #1 and linked to Leo Fong at #504. Enable JavaScript to explore the map.</p></noscript>
-          </div>
-          <div class="scene-caption">
-            <span class="map-key" aria-hidden="true"><i></i> Supporting passage</span>
-            <a class="map-hint" href="#evidence">Read selected passage <span aria-hidden="true">↘</span></a>
-          </div>
-        </div>
-
-        <div class="lab-controls">
-          <div class="reach" role="status" aria-atomic="true">
-            <strong id="reach-count">2 / 2</strong>
-            <span>supporting passages in reach</span>
-            <span class="reach-meter" id="reach-meter" aria-hidden="true"></span>
-          </div>
-          <fieldset class="filters">
-            <legend class="sr-only">Link types</legend>
+        <div id="flow-settings" class="flow-settings" hidden>
+          <label for="flow-budget">Search budget<select id="flow-budget"><option value="5">5 hits</option><option value="25">25 hits</option><option value="100">100 hits</option><option value="200">200 hits</option></select></label>
+          <fieldset class="filters"><legend>Use these links</legend>
             <label><input type="checkbox" data-family="S" checked><span class="family-s">Hyperlinks</span></label>
             <label><input type="checkbox" data-family="R" checked><span class="family-r">Title rules</span></label>
             <label><input type="checkbox" data-family="N" checked><span class="family-n">Shared names</span></label>
             <label><input type="checkbox" data-family="K" checked><span class="family-k">Semantic</span></label>
           </fieldset>
-          <p class="dataset-note" id="dataset-note" hidden>MuSiQue has no corpus hyperlinks.</p>
-          <div class="map-route-bar">
-            <p class="map-route" id="map-route" aria-live="polite"></p>
-            <a href="#links" class="section-link">Compare link types <span aria-hidden="true">↓</span></a>
-          </div>
+          <label for="flow-boost">Link boost <output id="flow-boost-value" for="flow-boost">1×</output><input id="flow-boost" type="range" min="0" max="2" step="0.5" value="1"></label>
         </div>
-      </section>
-
-      <section class="cases" id="cases" aria-labelledby="case-title">
-        <div class="case-heading">
-          <h2 id="case-title">Try another question</h2>
-        </div>
-        <div class="case-list" id="case-list" role="group" aria-label="Example questions"></div>
-      </section>
-    </div>
-
-    <section class="shell evidence" id="evidence" aria-labelledby="evidence-title">
-      <div class="evidence-picker">
-        <h2 id="evidence-title">Inspect the evidence</h2>
-        <p>Select a passage to see its search ranks and the links that brought it into reach.</p>
-        <div class="support-list" id="support-list" role="group" aria-label="Supporting passages"></div>
-        <a class="section-link" href="#pool">Continue to the candidate pool <span aria-hidden="true">↓</span></a>
       </div>
-      <article class="passage" id="passage" aria-labelledby="passage-title">
-        <div class="passage-meta">
-          <span id="passage-kind">Supporting passage</span>
-          <span id="passage-rank">First search #504</span>
-        </div>
-        <h3 id="passage-title">Leo Fong</h3>
-        <p class="passage-text" id="passage-text"></p>
-        <dl class="signal-strip" aria-label="First-search ranks">
-          <div><dt>Words</dt><dd id="signal-words">—</dd></div>
-          <div><dt>Meaning</dt><dd id="signal-meaning">—</dd></div>
-          <div><dt><a href="https://doi.org/10.1145/1571941.1572114">Fused rank ↗</a></dt><dd id="signal-fused">—</dd></div>
-        </dl>
-        <p class="passage-path" id="passage-path"></p>
-        <div id="link-proof" class="link-proof" hidden>
-          <h4>Why these passages connect</h4>
-          <div class="link-choices" id="link-choices" role="group" aria-label="Incoming links"></div>
-          <div class="link-explanation" id="link-explanation" aria-live="polite"></div>
-        </div>
-        <a class="text-link" id="passage-source" href="https://en.wikipedia.org/wiki/Leo_Fong" target="_blank" rel="noopener">Wikipedia reference <span aria-hidden="true">↗</span></a>
-      </article>
-    </section>
 
-    <section class="shell chapter" id="pool" aria-labelledby="pool-title">
-      <header class="chapter-head">
-        <div><h2 id="pool-title">Shrink the candidate pool</h2>
-          <p>Compare the links between passages, then change the search budget to see what enters the shortlist.</p></div>
-        <a class="case-link" href="#cases"><span id="pool-case">Blood Street</span> <span aria-hidden="true">↗</span><span class="sr-only">. Change question.</span></a>
-      </header>
-      <div class="workbench pool-bench">
-        <section class="link-workbench" id="links" aria-labelledby="links-title">
+      <p class="sr-only" id="flow-stage-status" aria-live="polite"></p>
+      <div class="flow-surface" id="flow-surface" tabindex="0" aria-label="Stage details" aria-busy="true">
+        <div class="flow-loading" id="flow-loading" role="status">Loading the walkthrough…</div>
+        <div class="flow-loading" id="flow-error" hidden>
+          <p>The passages for this question couldn’t load.</p><button type="button" class="ghost-button" id="flow-retry">Try again</button>
+        </div>
+
+        <section class="flow-panel" id="corpus" data-flow-panel aria-labelledby="corpus-title" hidden>
+          <div class="corpus-layout">
+            <div class="corpus-copy">
+              <h2 id="corpus-title">The search space</h2>
+              <strong id="corpus-total"></strong>
+              <p id="corpus-detail"></p>
+              <p class="lab-note">The dots represent the size of the benchmark snapshot.</p>
+            </div>
+            <canvas id="corpus-field" class="corpus-field" aria-hidden="true"></canvas>
+          </div>
+        </section>
+
+        <section class="flow-panel" id="lab" data-flow-panel aria-labelledby="search-title" hidden>
+          <div class="flow-panel-head"><div><h2 id="search-title">First search</h2><p class="flow-description" id="search-summary"></p></div>
+            <a class="section-link" href="https://doi.org/10.1145/1571941.1572114">How rank fusion works ↗</a></div>
+          <ol class="flow-rows" id="search-rows"></ol>
+        </section>
+
+        <section class="link-workbench flow-panel" id="links" data-flow-panel aria-labelledby="links-title" hidden>
           <div class="link-heading">
-            <h3 id="links-title">See how the links differ</h3>
+            <h3 id="links-title">Follow a link</h3>
             <div class="link-heading-actions">
               <a class="section-link" id="wire-example" href="?case=blood-street#links">See all four on one pair <span aria-hidden="true">↗</span></a>
-              <a class="section-link" href="#shortlist">Pool replay <span aria-hidden="true">↓</span></a>
+              <a class="section-link" href="#shortlist">See the shortlist <span aria-hidden="true">→</span></a>
             </div>
           </div>
+          <p class="flow-description" id="link-stage-summary"></p>
           <div class="link-bench-grid">
-            <div id="wire-types" class="wire-types" role="group" aria-label="Link types in this question"></div>
+            <div id="wire-types" class="wire-types" role="group" aria-label="Link types from the current search hits"></div>
             <div class="wire-card">
               <div class="wire-route" id="wire-route">
-                <div class="wire-controls">
-                  <label for="wire-pair">Connection</label>
-                  <select id="wire-pair"></select>
-                </div>
                 <div class="wire-diagram">
                   <a class="wire-node" id="wire-from" href="#evidence"><strong></strong><small></small></a>
                   <div class="wire-tracks" id="wire-tracks" role="group" aria-label="Link types connecting these passages"></div>
                   <a class="wire-node" id="wire-to" href="#evidence"><strong></strong><small></small></a>
+                </div>
+                <div class="wire-controls">
+                  <label for="wire-pair">Connection</label>
+                  <select id="wire-pair"></select>
                 </div>
                 <div class="wire-actions">
                   <button class="ghost-button" type="button" id="wire-replay">Replay link <span aria-hidden="true">↻</span></button>
@@ -188,65 +156,70 @@
             </div>
           </div>
         </section>
-        <div class="work-controls" id="shortlist">
-          <fieldset>
-            <legend>First-search budget</legend>
-            <div class="view-tabs" id="pool-depth">
-              <button type="button" data-depth="5" aria-pressed="true">5</button>
-              <button type="button" data-depth="25" aria-pressed="false">25</button>
-              <button type="button" data-depth="100" aria-pressed="false">100</button>
-              <button type="button" data-depth="200" aria-pressed="false">200</button>
-            </div>
-          </fieldset>
-          <fieldset>
-            <legend>Swap link types</legend>
-            <div class="view-tabs" id="pool-recipes">
-              <button type="button" data-recipe="0" aria-pressed="false">Search only</button>
-              <button type="button" data-recipe="12" aria-pressed="false" title="Shared names and semantic links">Text links</button>
-              <button type="button" data-recipe="14" aria-pressed="false" title="Title rules, shared names and semantic links">Title + text</button>
-              <button type="button" data-recipe="13" aria-pressed="false" title="Hyperlinks, shared names and semantic links">Hyperlinks + text</button>
-              <button type="button" data-recipe="15" aria-pressed="true">All available</button>
-            </div>
-          </fieldset>
-        </div>
-        <div class="pool-grid">
-          <div class="pool-visual">
-            <div class="pool-stages" role="group" aria-label="Candidate pool stages">
-              <button type="button" data-pool-stage="corpus" aria-pressed="false"><span>Corpus</span><strong id="pool-corpus">6,119</strong></button>
-              <button type="button" data-pool-stage="seeds" aria-pressed="false"><span>Search hits</span><strong id="pool-seeds">5</strong></button>
-              <button type="button" data-pool-stage="pool" aria-pressed="true"><span>Candidate pool</span><strong id="pool-size">—</strong></button>
-            </div>
-            <div class="pool-sky"><canvas id="pool-canvas" aria-hidden="true"></canvas><p id="pool-stage-caption" class="pool-caption" aria-live="polite"></p></div>
-            <div class="pool-footer"><span>Dots summarize larger sets</span><button type="button" class="ghost-button" id="pool-play">Replay pool build <span aria-hidden="true">↻</span></button></div>
-          </div>
-          <aside class="pool-inspector" aria-labelledby="pool-evidence-title">
-            <h3 id="pool-evidence-title">Which evidence made it in?</h3>
-            <p id="pool-change" class="pool-change" aria-live="polite"></p>
-            <ul id="pool-evidence" class="pool-evidence"></ul>
-            <p class="lab-note" id="pool-links"></p>
-          </aside>
-        </div>
-      </div>
-      <div class="scale-band">
-        <div><h3>At full-corpus scale</h3><p>Recorded development run for <span id="scale-dataset">2Wiki</span>.</p></div>
-        <dl>
-          <div><dt>Corpus passages</dt><dd id="scale-corpus">—</dd></div>
-          <div><dt>Mean shortlist</dt><dd id="scale-pool">—</dd></div>
-          <div><dt>Support retained</dt><dd id="scale-recall">—</dd></div>
-        </dl>
-        <a class="section-link" href="https://github.com/DoggoWoofWoof/MLPvsGNN/blob/25ce7d760c8086d2d67146d2d530e6c474ba4b4e/docs/COV_PICK_O_COVERAGE_AND_LOCALIZATION.md#8-filed-4-november-2026-about-0235-ist">Coverage report ↗</a>
-      </div>
-    </section>
 
-    <section class="shell chapter" id="rankers" aria-labelledby="rankers-title">
+        <section class="flow-panel" id="pool" data-flow-panel aria-labelledby="shortlist" hidden>
+          <div class="flow-panel-head"><div><h2 id="shortlist">Build the shortlist</h2><p class="flow-description" id="pool-summary"></p></div></div>
+          <div class="shortlist-layout">
+            <div>
+              <div class="pool-scale">
+                <div class="pool-scale-label"><span>Full corpus</span><span id="pool-corpus-total"></span></div>
+                <div class="pool-scale-track" aria-hidden="true"><span id="pool-share-bar"></span></div>
+              </div>
+              <div class="pool-chart" id="pool-chart" aria-hidden="true"><span id="pool-seed-bar"></span><span id="pool-linked-bar"></span></div>
+              <dl class="pool-counts"><div><dt>Search hits</dt><dd id="pool-seed-total"></dd></div><div><dt>Linked neighbours</dt><dd id="pool-linked-total"></dd></div><div><dt>In the shortlist</dt><dd id="pool-total"></dd></div></dl>
+            </div>
+            <div><h3 class="shortlist-subtitle">Supporting passages</h3><ul class="flow-rows" id="pool-rows"></ul></div>
+          </div>
+        </section>
+
+        <section class="flow-panel" id="rankers" data-flow-panel aria-labelledby="finish-title" hidden>
+          <div class="flow-panel-head"><div><h2 id="finish-title">Final top five</h2><p class="flow-description" id="finish-summary"></p></div>
+            <div class="view-tabs flow-rank-tabs" role="group" aria-label="Compare ranking methods">
+              <button type="button" id="finish-base" aria-pressed="false">Fused score</button><button type="button" id="finish-boosted" aria-pressed="true">With link boost</button>
+            </div></div>
+          <ol class="flow-rows" id="finish-rows"></ol>
+          <p class="lab-note finish-note">The demo adds a bonus from the strongest linked search hit. The benchmark’s supporting labels are used to check the result.</p>
+        </section>
+        <noscript><p class="flow-loading">Enable JavaScript to run the retrieval walkthrough.</p></noscript>
+      </div>
+    </div>
+  </main>
+
+  <dialog class="flow-dialog evidence-dialog" id="evidence" aria-labelledby="passage-title">
+    <div class="dialog-head"><p class="overline" id="passage-kind">Passage</p><button type="button" class="ghost-button" id="evidence-close">Close <span aria-hidden="true">×</span></button></div>
+    <h2 id="passage-title"></h2>
+    <p class="passage-text" id="passage-text"></p>
+    <dl class="signal-strip" aria-label="First search ranks">
+      <div><dt>Words</dt><dd id="signal-words">—</dd></div>
+      <div><dt>Meaning</dt><dd id="signal-meaning">—</dd></div>
+      <div><dt>Fused rank</dt><dd id="signal-fused">—</dd></div>
+    </dl>
+    <p class="passage-path" id="passage-path"></p>
+    <p class="lab-note" id="passage-score"></p>
+    <div class="dialog-actions"><a class="section-link" id="passage-source" href="https://en.wikipedia.org/" target="_blank" rel="noopener">Wikipedia reference ↗</a>
+      <button type="button" class="ghost-button" id="passage-trace" hidden>Trace this connection →</button></div>
+  </dialog>
+
+  <dialog class="flow-dialog research-dialog" id="research" aria-label="Recorded experiments and methods">
+    <div class="dialog-head">
+      <nav class="view-tabs" aria-label="Research sections">
+        <button type="button" data-archive-target="recorded">Saved rankers</button>
+        <button type="button" data-archive-target="latency">CPU timings</button>
+        <button type="button" data-archive-target="benchmarks">Baselines</button>
+        <button type="button" data-archive-target="method">Methods</button>
+      </nav>
+      <button type="button" class="ghost-button" id="research-close">Close <span aria-hidden="true">×</span></button>
+    </div>
+    <div class="research-content">
+    <section class="chapter archive-pane" id="recorded" data-research-pane aria-labelledby="rankers-title">
       <header class="chapter-head">
-        <div><h2 id="rankers-title">Make the top five</h2>
-          <p>A passage can enter the pool and still miss the final five. Compare what each ranker kept.</p></div>
-        <a class="case-link" href="#cases"><span id="rank-case">Blood Street</span> <span aria-hidden="true">↗</span><span class="sr-only">. Change question.</span></a>
+        <div><h2 id="rankers-title">Saved model runs</h2>
+          <p>The MLP and GNN scored a fixed research shortlist for this question.</p></div>
+        <span class="dataset" id="rank-case">Blood Street</span>
       </header>
       <div class="workbench rank-bench">
         <div class="rank-lanes" id="rank-lanes"></div>
-        <div class="rank-foot"><p class="lab-note" id="rank-note"></p><a class="section-link" id="full-rank-link" href="?case=erik-hort#rankers">Open a full ranking ↗</a></div>
+        <div class="rank-foot"><p class="lab-note" id="rank-note"></p><a class="section-link" id="full-rank-link" href="?case=erik-hort#recorded">Open a full ranking ↗</a></div>
         <div class="message-lab">
           <div class="message-copy">
             <h3>Pass messages along the links</h3>
@@ -261,8 +234,7 @@
       </div>
     </section>
 
-    <div class="shell result-grid">
-      <section class="chapter result" id="latency" aria-labelledby="latency-title">
+      <section class="chapter result archive-pane" id="latency" data-research-pane aria-labelledby="latency-title">
         <header class="chapter-head"><div><h2 id="latency-title">Where the time goes</h2>
           <p>Replay measured CPU medians for <strong id="timing-dataset">2Wiki</strong>.</p></div></header>
         <div class="workbench result-panel">
@@ -278,7 +250,7 @@
             <a class="section-link" href="https://github.com/DoggoWoofWoof/MLPvsGNN/blob/ed3cdd1e9d5ae815dca11be7e4c900da60ac12aa/outputs/fsv/timing/a6/report.md#cold-per-stage-ms-p50--p95">CPU timing report ↗</a></div>
         </div>
       </section>
-      <section class="chapter result" id="benchmarks" aria-labelledby="benchmarks-title">
+      <section class="chapter result archive-pane" id="benchmarks" data-research-pane aria-labelledby="benchmarks-title">
         <header class="chapter-head"><div><h2 id="benchmarks-title">Published baselines</h2>
           <p>Recall@5 measures the share of supporting passages retrieved in the first five.</p></div></header>
         <div class="workbench result-panel">
@@ -292,14 +264,18 @@
             <a class="section-link" href="https://arxiv.org/html/2502.14802v2#S4.T3">Table 3 ↗</a></div>
         </div>
       </section>
-    </div>
 
-    <section class="shell method" id="method" aria-labelledby="method-title">
+    <section class="method archive-pane" id="method" data-research-pane aria-labelledby="method-title">
       <h2 id="method-title">Data and methods</h2>
       <div class="method-grid">
         <article><h3>First search</h3><p>Dense and sparse retrievers order the passages by meaning and words. <a href="https://doi.org/10.1145/1571941.1572114">Reciprocal rank fusion</a> combines those orders.</p></article>
-        <article><h3>Pool replay</h3><p>Each selected search hit contributes its direct neighbours from the enabled link types. Duplicate passages count once. The evidence map draws a subset around the first five hits.</p></article>
-        <article><h3>Ranking replay</h3><p>The saved MLP and GNN outputs use a fixed research shortlist and seed 0. The interactive pool shows what a one-hop expansion would admit at different budgets.</p></article>
+        <article><h3>Pool replay</h3><p>Each selected search hit contributes its direct neighbours from the enabled link types. Duplicate passages count once. The link diagram shows selected connections from the current search hits.</p></article>
+        <article><h3>Ranking replay</h3><p>The demo adds a bonus to each neighbour based on its best connected search hit. The bonus equals that hit’s fused score times the number of enabled link types on the connection, divided by four, times the chosen boost. The saved MLP and GNN runs used a fixed shortlist and seed 0.</p></article>
+      </div>
+      <div class="scale-band">
+        <div><h3>At full-corpus scale</h3><p>Recorded development run for <span id="scale-dataset">2Wiki</span>.</p></div>
+        <dl><div><dt>Corpus passages</dt><dd id="scale-corpus">—</dd></div><div><dt>Mean shortlist</dt><dd id="scale-pool">—</dd></div><div><dt>Support retained</dt><dd id="scale-recall">—</dd></div></dl>
+        <a class="section-link" href="https://github.com/DoggoWoofWoof/MLPvsGNN/blob/25ce7d760c8086d2d67146d2d530e6c474ba4b4e/docs/COV_PICK_O_COVERAGE_AND_LOCALIZATION.md#8-filed-4-november-2026-about-0235-ist">Coverage report ↗</a>
       </div>
       <details class="method-details">
         <summary>Benchmark sources and link definitions</summary>
@@ -313,10 +289,7 @@
         <p>Passage excerpts are by Wikipedia contributors, as distributed in the benchmark datasets, under <a href="https://creativecommons.org/licenses/by-sa/4.0/">CC BY-SA 4.0</a>.</p>
       </details>
     </section>
-  </main>
-
-  <footer class="site-footer">
-    <div class="shell footer-inner"><span>Second Hop</span><div class="footer-links"><a href="#method">Data and methods</a><a href="#top">Back to top <span aria-hidden="true">↑</span></a></div></div>
-  </footer>
+    </div>
+  </dialog>
 </body>
 </html>

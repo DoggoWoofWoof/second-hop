@@ -35,7 +35,7 @@
   background: radial-gradient(ellipse at center, #2c20436d, #171220 77%);
   padding: clamp(8px, 1.4vw, 15px);
 }
-.wire-route { display: grid; grid-template-rows: auto minmax(103px, 1fr) auto; align-items: center; gap: 11px; height: 100%; }
+.wire-route { display: grid; grid-template-rows: minmax(96px, 1fr) auto auto; align-items: center; gap: 11px; height: 100%; }
 .wire-controls { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 7px; }
 .wire-controls label { color: var(--muted); font: 500 .68rem/1.3 var(--mono); }
 .wire-controls select {
@@ -99,12 +99,21 @@
 
 @media (max-width: 640px) {
   .link-bench-grid { grid-template-columns: minmax(0, 1fr); }
-  .wire-types { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .wire-types { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .wire-type { grid-template-columns: 1fr; padding: 5px 3px; justify-items: center; text-align: center; }
+  .wire-type strong { font-size: .66rem; }
+  .wire-type :is(small, .wire-type-count) { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .wire-swatch { grid-row: 1; width: 25px; }
+  .wire-swatch svg { height: 6px; }
   .wire-route { gap: 8px; }
   .wire-node small { font-size: .59rem; }
 }
 
 @media (max-width: 460px) {
-  .site-nav .nav-map { display: none; }
-  .link-heading .section-link { font-size: .73rem; }
+  .link-heading { margin-bottom: 4px; }
+  .link-heading .section-link { min-height: 24px; font-size: .65rem; }
+  .wire-card { grid-row: 1; grid-column: 1; }
+  .wire-types { grid-row: 2; }
+  .wire-proof { grid-row: 3; }
+  .wire-tracks button { height: 24px; }
 }

@@ -2,396 +2,395 @@
   "use strict";
 
   const examples = window.SECOND_HOP_EXAMPLES;
-  const pipeline = window.SECOND_HOP_PIPELINE;
-  const { families, articleURL: wikiURL, describeLink } = window.SECOND_HOP_LINKS;
-  const rankOrder = (a, b) => (a.rank ?? Infinity) - (b.rank ?? Infinity);
-  const formatNumber = new Intl.NumberFormat("en-US");
-  const rankLabel = node => node.rank === null ? "Outside the recorded top 1,000" : `#${formatNumber.format(node.rank)}`;
-  const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
-  const stacked = window.matchMedia("(max-width: 1000px)");
-  const modeButtons = [...document.querySelectorAll("[data-mode]")];
-  const filters = [...document.querySelectorAll("[data-family]")];
+  const records = window.SECOND_HOP_PIPELINE;
+  const { families, articleURL } = window.SECOND_HOP_LINKS;
+  const { budgets, prepare, run } = window.SECOND_HOP_RETRIEVAL;
   const byId = id => document.getElementById(id);
-  const lab = byId("lab");
-  const scene = byId("scene");
-  const canvas = byId("edges");
-  const graph = byId("nodes");
-  const cases = byId("case-list");
-  const supports = byId("support-list");
-  const meter = byId("reach-meter");
-  const source = byId("passage-source");
-  const proof = byId("link-proof");
-  const choices = byId("link-choices");
-  const replay = byId("replay-links");
-  const context = canvas.getContext("2d");
+  const number = new Intl.NumberFormat("en-US");
+  const percent = new Intl.NumberFormat("en-US", { style: "percent", maximumFractionDigits: 2 });
+  const scoreText = score => score.toFixed(4);
+  const rankText = rank => rank ? `#${number.format(rank)}` : "—";
+  const chooseCase = byId("flow-case");
+  const budgetControl = byId("flow-budget");
+  const boostControl = byId("flow-boost");
+  const familyControls = [...document.querySelectorAll("input[data-family]")];
+  const stepButtons = [...document.querySelectorAll("[data-stage]")];
+  const panels = [...document.querySelectorAll("[data-flow-panel]")];
+  const stages = stepButtons.map(button => button.dataset.stage);
+  const stageLabels = ["Corpus", "Search", "Links", "Pool", "Top five"];
+  const surface = byId("flow-surface");
+  const settings = byId("flow-settings");
+  const tune = byId("flow-tune");
+  const play = byId("flow-play");
+  const back = byId("flow-back");
+  const next = byId("flow-next");
+  const evidence = byId("evidence");
+  const research = byId("research");
+  const archivePanes = [...document.querySelectorAll("[data-research-pane]")];
+  const archiveButtons = [...document.querySelectorAll("[data-archive-target]")];
+  const traces = new Map();
+  const motion = window.matchMedia("(prefers-reduced-motion: reduce)");
+  const corpusCanvas = byId("corpus-field");
 
-  let sample;
-  let selected;
-  let mode = "links";
-  let reach;
-  let supportNodes;
-  let graphNodes;
-  let supportButtons;
-  let focusedLink;
-  let traceFrame = 0;
-  const caseButtons = new Map();
-
-  const enabledFamilies = () => filters.filter(input => input.checked && !input.disabled).map(input => input.dataset.family);
-
-  function assessReach() {
-    const starts = new Set(sample.nodes.filter(node => node.rank !== null && node.rank <= 5).map(node => node.id));
-    const links = new Map();
-    const incoming = new Map();
-
-    if (mode === "links") {
-      for (const family of enabledFamilies()) {
-        for (const [a, b] of sample.edges[family]) {
-          if (starts.has(a) === starts.has(b)) continue;
-          const [from, to] = starts.has(a) ? [a, b] : [b, a];
-          const key = `${from}-${to}`;
-          if (!links.has(key)) links.set(key, { from, to, families: [] });
-          links.get(key).families.push(family);
-        }
-      }
-    }
-
-    for (const edge of links.values()) {
-      if (!incoming.has(edge.to)) incoming.set(edge.to, []);
-      incoming.get(edge.to).push(edge);
-    }
-    return { starts, incoming, edges: [...links.values()] };
-  }
-
-  function status(node) {
-    if (reach.starts.has(node.id)) return "start";
-    return reach.incoming.has(node.id) ? "linked" : "outside";
-  }
-
-  const statusLabels = {
-    start: "In the first five",
-    linked: "One link away",
-    outside: "Out of reach",
+  const params = new URLSearchParams(window.location.search);
+  const knownStage = () => {
+    const fragment = window.location.hash.slice(1);
+    return fragment === "shortlist" ? "pool" : stages.includes(fragment) ? fragment : null;
   };
+  let stage = knownStage() ?? "corpus";
+  let sample;
+  let trace;
+  let result;
+  let loadId = 0;
+  let timer = 0;
+  let boosted = true;
+  let currentPassage;
+  let corpusFrame = 0;
+  let corpusProgress = 1;
 
-  function button(className) {
-    const element = document.createElement("button");
-    element.className = className;
-    element.type = "button";
+  function el(tag, className, text) {
+    const element = document.createElement(tag);
+    if (className) element.className = className;
+    if (text !== undefined) element.textContent = text;
     return element;
   }
 
-  function buildCasePicker() {
-    for (const example of examples) {
-      const control = button("case-button");
-      const label = document.createElement("span");
-      const dataset = document.createElement("span");
-      const arrow = document.createElement("span");
-      label.className = "case-label";
-      label.textContent = example.label;
-      dataset.className = "case-dataset";
-      dataset.textContent = example.dataset === "2WikiMultihopQA" ? "2Wiki" : example.dataset;
-      arrow.className = "case-arrow";
-      arrow.textContent = "↗";
-      arrow.setAttribute("aria-hidden", "true");
-      control.append(dataset, label, arrow);
-      control.addEventListener("click", () => {
-        openCase(example, true);
-        const url = new URL(window.location.href);
-        url.searchParams.set("case", example.id);
-        history.replaceState(null, "", url);
-        if (stacked.matches) {
-          lab.focus({ preventScroll: true });
-          lab.scrollIntoView({ behavior: reduceMotion.matches ? "instant" : "smooth" });
-        }
-      });
-      cases.append(control);
-      caseButtons.set(example.id, control);
+  function availableFamilies() {
+    return familyControls.filter(input => input.checked && !input.disabled).map(input => input.dataset.family);
+  }
+
+  function writeLocation(fragment) {
+    const url = new URL(window.location.href);
+    url.searchParams.set("case", chooseCase.value);
+    url.searchParams.set("budget", budgetControl.value);
+    url.searchParams.set("links", familyControls.filter(input => input.checked).map(input => input.dataset.family).join(""));
+    url.searchParams.set("boost", boostControl.value);
+    if (fragment) url.hash = fragment;
+    history.replaceState(null, "", url);
+  }
+
+  function renderNavigation() {
+    const index = stages.indexOf(stage);
+    stepButtons.forEach(button => {
+      if (button.dataset.stage === stage) button.setAttribute("aria-current", "step");
+      else button.removeAttribute("aria-current");
+      button.disabled = !result;
+    });
+    back.disabled = !result || index === 0;
+    next.disabled = !result || index === stages.length - 1;
+    next.textContent = index === stages.length - 1 ? "Finished" : `Next: ${stageLabels[index + 1]} →`;
+    play.disabled = !result;
+  }
+
+  function showStage(id, animate = true, updateUrl = true) {
+    const changed = stage !== id;
+    stage = id;
+    if (updateUrl) writeLocation(id);
+    for (const panel of panels) panel.hidden = !result || panel.id !== id;
+    renderNavigation();
+    if (!result) return;
+    const index = stages.indexOf(id);
+    const stageStatus = byId("flow-stage-status");
+    const stageLabel = `Step ${index + 1} of ${stages.length}: ${stageLabels[index]}`;
+    if (stageStatus.textContent !== stageLabel) stageStatus.textContent = stageLabel;
+    if (changed) surface.scrollTop = 0;
+    const panel = byId(id);
+    if (animate && !motion.matches && changed) {
+      panel.animate([{ opacity: 0.25, transform: "translateY(7px)" }, { opacity: 1, transform: "translateY(0)" }],
+        { duration: 250, easing: "ease-out" });
     }
+    if (id === "corpus") animateCorpus(animate);
+    if (id === "links" && animate) document.dispatchEvent(new Event("secondhop:replay-link"));
   }
 
-  function makeGraphNode(node, [x, y]) {
-    const control = button("graph-node");
-    control.dataset.supporting = String(node.supporting);
-    control.dataset.align = x < 20 ? "left" : x > 80 ? "right" : "center";
-    control.style.left = `${x}%`;
-    control.style.top = `${y}%`;
-
-    const marker = document.createElement("span");
-    marker.className = "node-marker";
-    marker.setAttribute("aria-hidden", "true");
-    const label = document.createElement("span");
-    label.className = "node-label";
-    label.setAttribute("aria-hidden", "true");
-    const title = document.createElement("b");
-    title.textContent = node.title;
-    const rank = document.createElement("small");
-    rank.textContent = rankLabel(node);
-    label.append(title, rank);
-    control.append(marker, label);
-    control.addEventListener("click", () => selectNode(node.id));
-    return control;
+  function stopReplay() {
+    clearTimeout(timer);
+    timer = 0;
+    play.textContent = "Play pipeline ▷";
   }
 
-  function buildGraph() {
-    const otherNodes = sample.nodes.filter(node => !node.supporting).sort(rankOrder);
-    const dense = supportNodes.length > 2;
-    const supportPositions = dense ? [[24, 27], [74, 21], [78, 57], [28, 61]] : [[25, 40], [74, 55]];
-    const otherPositions = dense ? [[11, 59], [47, 42], [55, 13], [55, 78], [91, 44], [39, 13]]
-      : [[13, 72], [37, 74], [44, 19], [50, 80], [60, 32], [86, 24], [89, 78], [66, 77]];
-
-    scene.parentElement.classList.toggle("dense", dense);
-    graph.replaceChildren();
-    graphNodes = new Map();
-    for (const [nodes, positions] of [[supportNodes, supportPositions], [otherNodes, otherPositions]]) {
-      nodes.forEach((node, index) => {
-        const position = positions[index];
-        const control = makeGraphNode(node, position);
-        graph.append(control);
-        graphNodes.set(node.id, { node, position, control });
-      });
-    }
-
-    supports.replaceChildren();
-    supportButtons = new Map();
-    for (const node of supportNodes) {
-      const control = button("support-button");
-      const title = document.createElement("strong");
-      const rank = document.createElement("span");
-      const note = document.createElement("span");
-      title.textContent = node.title;
-      rank.className = "support-rank";
-      rank.textContent = rankLabel(node);
-      note.className = "support-status";
-      control.append(rank, title, note);
-      control.addEventListener("click", () => selectNode(node.id));
-      supports.append(control);
-      supportButtons.set(node.id, { control, note });
-    }
+  function setSettings(open) {
+    settings.hidden = !open;
+    tune.setAttribute("aria-expanded", String(open));
   }
 
-  function openCase(example, animate = false) {
-    sample = example;
-    supportNodes = sample.nodes.filter(node => node.supporting).sort(rankOrder);
-    selected = supportNodes.find(node => node.rank === null || node.rank > 5)?.id ?? supportNodes[0].id;
-    byId("question").textContent = sample.question;
-    byId("dataset").textContent = sample.dataset;
-    const hasHyperlinks = sample.dataset !== "MuSiQue";
-    filters.find(input => input.dataset.family === "S").disabled = !hasHyperlinks;
-    byId("dataset-note").hidden = hasHyperlinks;
-    for (const [id, control] of caseButtons) control.setAttribute("aria-pressed", String(id === sample.id));
-    buildGraph();
-    renderReach(animate);
-  }
-
-  function renderReach(animate) {
-    reach = assessReach();
-    modeButtons.forEach(control => control.setAttribute("aria-pressed", String(control.dataset.mode === mode)));
-
-    const count = supportNodes.filter(node => status(node) !== "outside").length;
-    byId("reach-count").textContent = `${count} / ${supportNodes.length}`;
-    meter.replaceChildren(...supportNodes.map(node => {
-      const segment = document.createElement("i");
-      segment.dataset.state = status(node);
-      return segment;
-    }));
-
-    for (const { node, control } of graphNodes.values()) {
-      const state = status(node);
-      control.dataset.state = state;
-      const kind = node.supporting ? "Supporting passage" : "Other passage";
-      control.setAttribute("aria-label", `${node.title}. First search ${rankLabel(node)}. ${kind}. ${statusLabels[state]}.`);
-      const support = supportButtons.get(node.id);
-      if (support) {
-        support.control.dataset.state = state;
-        support.note.textContent = statusLabels[state];
-      }
-    }
-
-    selectNode(selected);
-    replay.disabled = !enabledFamilies().length;
-    if (animate) playTrace();
-    document.dispatchEvent(new CustomEvent("secondhop:state", { detail: { sample, families: enabledFamilies() } }));
-  }
-
-  function playTrace() {
-    cancelAnimationFrame(traceFrame);
-    drawGraph();
-    if (!reduceMotion.matches && reach.edges.length) {
-      const start = performance.now();
-      const trace = now => {
-        const progress = reduceMotion.matches ? 1 : Math.max(0, Math.min((now - start) / 1050, 1));
-        drawGraph(progress);
-        if (progress < 1) traceFrame = requestAnimationFrame(trace);
-      };
-      traceFrame = requestAnimationFrame(trace);
-    }
-  }
-
-  function showLink(edge, family, control) {
-    focusedLink = { edge, family };
-    for (const choice of choices.children) choice.setAttribute("aria-pressed", String(choice === control));
-    const origin = graphNodes.get(edge.from).node;
-    const target = graphNodes.get(edge.to).node;
-    const { explanation, quote, quotedBy = origin.title } = describeLink(sample, origin, target, family);
-    const content = byId("link-explanation");
-    const summary = document.createElement("p");
-    summary.textContent = explanation;
-    const actions = document.createElement("div");
-    actions.className = "proof-actions";
-    const sourceLink = document.createElement("a");
-    sourceLink.href = wikiURL(quotedBy);
-    sourceLink.target = "_blank";
-    sourceLink.rel = "noopener";
-    sourceLink.textContent = `${quotedBy} ↗`;
-    const trace = document.createElement("a");
-    trace.href = "#lab";
-    trace.textContent = "Trace on map ↑";
-    trace.addEventListener("click", playTrace);
-    actions.append(sourceLink, trace);
-    content.replaceChildren(summary, ...(quote ? [quote] : []), actions);
-    byId("map-route").textContent = `${origin.title} → ${target.title} · ${families[family].label}`;
-  }
-
-  function showIncoming(node) {
-    focusedLink = null;
-    choices.replaceChildren();
-    const incoming = reach.incoming.get(node.id);
-    proof.hidden = !incoming;
-    const route = byId("map-route");
-    if (!incoming) {
-      route.textContent = status(node) === "start" ? `${node.title} · starting passage` : `${node.title} · outside the current reach`;
+  function playStages() {
+    if (timer) {
+      stopReplay();
       return;
     }
-    const multipleOrigins = incoming.length > 1;
-    incoming.sort((a, b) => rankOrder(graphNodes.get(a.from).node, graphNodes.get(b.from).node));
-    for (const edge of incoming) {
-      for (const family of edge.families) {
-        const choice = button(`link-choice family-${family.toLowerCase()}`);
-        choice.textContent = families[family].label;
-        if (multipleOrigins) choice.textContent += ` · ${graphNodes.get(edge.from).node.title}`;
-        choice.addEventListener("click", () => {
-          showLink(edge, family, choice);
-          drawGraph();
-        });
-        choices.append(choice);
-      }
-    }
-    showLink(incoming[0], incoming[0].families[0], choices.firstElementChild);
+    if (!result) return;
+    setSettings(false);
+    play.textContent = "Pause replay";
+    let index = 0;
+    const advance = () => {
+      showStage(stages[index]);
+      index++;
+      if (index === stages.length) stopReplay();
+      else timer = window.setTimeout(advance, 2100);
+    };
+    advance();
   }
 
-  function selectNode(id) {
-    selected = id;
-    for (const [nodeId, { control }] of graphNodes) control.setAttribute("aria-pressed", String(nodeId === selected));
-    for (const [nodeId, { control }] of supportButtons) control.setAttribute("aria-pressed", String(nodeId === selected));
-
-    const node = graphNodes.get(id).node;
-    const state = status(node);
-    byId("passage-kind").textContent = node.supporting ? "Supporting passage" : "Other passage";
-    byId("passage-rank").textContent = node.rank === null ? rankLabel(node) : `First search ${rankLabel(node)}`;
-    byId("passage-title").textContent = node.title;
-    byId("passage-text").textContent = node.text;
-    const [words, meaning] = pipeline[sample.id].signals[node.id];
-    byId("signal-words").textContent = words === null ? "—" : `#${formatNumber.format(words)}`;
-    byId("signal-meaning").textContent = meaning === null ? "—" : `#${formatNumber.format(meaning)}`;
-    byId("signal-fused").textContent = node.rank === null ? "—" : rankLabel(node);
-    byId("passage-path").dataset.state = state;
-    if (state === "linked") {
-      byId("passage-path").textContent = "Reached in one hop from the first five results.";
-    } else if (state === "start") {
-      byId("passage-path").textContent = "This passage is one of the first five results.";
-    } else {
-      byId("passage-path").textContent = mode === "links"
-        ? "No enabled link connects this passage directly to the first five results."
-        : "This passage is outside the first five results.";
-    }
-    source.href = wikiURL(node.title);
-    source.setAttribute("aria-label", `Wikipedia article for ${node.title}`);
-    showIncoming(node);
-    drawGraph();
-  }
-
-  function drawGraph(progress = 1) {
-    if (!context || !reach) return;
-    const { width, height } = scene.getBoundingClientRect();
-    if (!width || !height) return;
-    const scale = Math.min(window.devicePixelRatio || 1, 2);
-    const pixelWidth = Math.round(width * scale);
-    const pixelHeight = Math.round(height * scale);
-    if (canvas.width !== pixelWidth) canvas.width = pixelWidth;
-    if (canvas.height !== pixelHeight) canvas.height = pixelHeight;
-    context.setTransform(scale, 0, 0, scale, 0, 0);
+  function paintCorpus() {
+    const context = corpusCanvas.getContext("2d");
+    const { width, height } = corpusCanvas.getBoundingClientRect();
+    if (!context || !width || !height) return;
+    const ratio = Math.min(devicePixelRatio || 1, 2);
+    const pixels = [Math.round(width * ratio), Math.round(height * ratio)];
+    if (corpusCanvas.width !== pixels[0]) corpusCanvas.width = pixels[0];
+    if (corpusCanvas.height !== pixels[1]) corpusCanvas.height = pixels[1];
+    context.setTransform(ratio, 0, 0, ratio, 0, 0);
     context.clearRect(0, 0, width, height);
-
-    const visibleEdges = [...reach.edges].sort((a, b) => Number(a === focusedLink?.edge) - Number(b === focusedLink?.edge));
-    for (const edge of visibleEdges) {
-      const origin = graphNodes.get(edge.from);
-      const target = graphNodes.get(edge.to);
-      const [x1, y1] = [width * origin.position[0] / 100, height * origin.position[1] / 100];
-      const [x2, y2] = [width * target.position[0] / 100, height * target.position[1] / 100];
-      const bend = (y1 + y2) / 2 - Math.min(67, 12 + Math.abs(x2 - x1) * 0.14);
-      const midpoint = (x1 + x2) / 2;
-      const focused = edge === focusedLink?.edge;
-      const highlighted = focused || target.node.supporting;
-      const family = focused ? focusedLink.family : edge.families[0];
-      const { color, dash } = families[family];
-      const delay = (origin.node.rank - 1) * 0.035;
-      const t = progress === 1 ? 1 : Math.min(1, Math.max(0, (progress - delay) / (1 - delay)));
-      const remaining = 1 - t;
-      const pointX = remaining ** 2 * x1 + 2 * remaining * t * midpoint + t ** 2 * x2;
-      const pointY = remaining ** 2 * y1 + 2 * remaining * t * bend + t ** 2 * y2;
-
+    const dots = Math.round(90 + trace.corpus / 125);
+    for (let index = 0; index < dots; index++) {
+      const radius = Math.sqrt((index + 0.5) / dots) * (0.8 + 0.2 * corpusProgress);
+      const angle = index * 2.399963;
+      const x = width * (0.5 + Math.cos(angle) * radius * 0.44);
+      const y = height * (0.5 + Math.sin(angle) * radius * 0.42);
+      context.globalAlpha = (0.25 + (index % 7) * 0.095) * corpusProgress;
+      context.fillStyle = index % 9 ? "#bbabff" : "#ffce8d";
       context.beginPath();
-      context.moveTo(x1, y1);
-      context.quadraticCurveTo(x1 + (midpoint - x1) * t, y1 + (bend - y1) * t, pointX, pointY);
-      context.strokeStyle = color;
-      context.setLineDash(dash);
-      if (highlighted) {
-        context.globalAlpha = 0.13;
-        context.lineWidth = 10;
-        context.stroke();
-      }
-      context.globalAlpha = highlighted ? 0.97 : 0.69;
-      context.lineWidth = focused ? 2.6 : highlighted ? 2.15 : 1.55;
-      context.stroke();
+      context.arc(x, y, index % 9 ? 1.55 : 2.3, 0, 2 * Math.PI);
+      context.fill();
+    }
+  }
 
-      if ((highlighted || progress < 1) && t > 0) {
-        const inMotion = t < 1;
-        context.beginPath();
-        context.arc(inMotion ? pointX : midpoint, inMotion ? pointY : (y1 + y2) / 4 + bend / 2,
-          highlighted ? (inMotion ? 4 : 2.6) : 2, 0, 2 * Math.PI);
-        context.globalAlpha = highlighted ? 1 : 0.65;
-        context.fillStyle = color;
-        context.fill();
+  function animateCorpus(animate) {
+    cancelAnimationFrame(corpusFrame);
+    corpusProgress = 1;
+    if (!animate || motion.matches) {
+      paintCorpus();
+      return;
+    }
+    const started = performance.now();
+    const frame = now => {
+      if (stage !== "corpus") return;
+      corpusProgress = Math.min(1, Math.max(0.14, (now - started) / 520));
+      paintCorpus();
+      if (corpusProgress < 1) corpusFrame = requestAnimationFrame(frame);
+    };
+    corpusFrame = requestAnimationFrame(frame);
+  }
+
+  function rowFor(node, { position, detail, value } = {}) {
+    const row = el("li", "flow-row");
+    const button = el("button", "flow-row-button");
+    const name = el("span", "flow-row-copy");
+    button.type = "button";
+    if (position !== undefined) button.append(el("span", "flow-row-position", position));
+    name.append(el("strong", "", node.title), el("small", "", detail));
+    button.append(name);
+    if (value !== undefined) button.append(el("span", "flow-row-value", value));
+    if (node.supporting) button.append(el("span", "flow-support-chip", "Supporting"));
+    button.addEventListener("click", () => openPassage(node.id));
+    row.append(button);
+    return row;
+  }
+
+  function pathLabel(path) {
+    return path.active.map(type => families[type].label.toLowerCase()).join(" + ");
+  }
+
+  function renderResults() {
+    const ranking = boosted ? result.boosted : result.base;
+    const kept = ranking.filter(entry => entry.node.supporting).length;
+    byId("step-results").textContent = `${kept}/${trace.support.length}`;
+    byId("finish-summary").textContent = `${kept} of ${trace.support.length} supporting passages made the cut.`;
+    byId("finish-base").setAttribute("aria-pressed", String(!boosted));
+    byId("finish-boosted").setAttribute("aria-pressed", String(boosted));
+    byId("finish-rows").replaceChildren(...ranking.map(({ node, total }, index) => {
+      const path = result.origins.get(node.id);
+      const detail = path ? `Linked from ${path.from.title} (${rankText(path.from.rank)})` : `Search hit ${rankText(node.rank)}`;
+      return rowFor(node, { position: String(index + 1), detail, value: scoreText(boosted ? total : node.score) });
+    }));
+  }
+
+  function renderWalkthrough() {
+    if (!trace) return;
+    const enabled = availableFamilies();
+    const boost = Number(boostControl.value);
+    result = run(trace, Number(budgetControl.value), enabled, boost);
+    const { seeds, size, support, origins, seedIds } = result;
+    const added = size - seeds.length;
+    byId("flow-boost-value").textContent = `${boost}×`;
+    byId("step-corpus").textContent = number.format(trace.corpus);
+    byId("step-search").textContent = number.format(seeds.length);
+    byId("step-links").textContent = `+${number.format(added)}`;
+    byId("step-pool").textContent = number.format(size);
+    byId("corpus-total").textContent = number.format(trace.corpus);
+    byId("corpus-detail").textContent = `The ${sample.dataset} benchmark snapshot holds this question’s search space. The recorded first search combines a word ranking with a meaning ranking.`;
+    const searchPreview = seeds.length === 5 ? seeds : [...seeds.slice(0, 4), seeds.at(-1)];
+    byId("search-summary").textContent = seeds.length === 5 ? "The first five fused ranks become starting points."
+      : `The first ${seeds.length} results become starting points. Here are the first four and the cutoff.`;
+    byId("search-rows").replaceChildren(...searchPreview.map(node => rowFor(node, {
+      position: rankText(node.rank), detail: `Words ${rankText(node.words)} · Meaning ${rankText(node.meaning)}`, value: scoreText(node.score),
+    })));
+    byId("link-stage-summary").textContent = `${seeds.length} search hits → ${number.format(added)} linked neighbours.`;
+    byId("pool-summary").textContent = `${percent.format(size / trace.corpus)} of the corpus, with ${support} of ${trace.support.length} supporting passages.`;
+    byId("pool-corpus-total").textContent = `${number.format(trace.corpus)} passages`;
+    byId("pool-share-bar").style.width = `${100 * size / trace.corpus}%`;
+    byId("pool-seed-bar").style.width = `${100 * seeds.length / size}%`;
+    byId("pool-linked-bar").style.width = `${100 * added / size}%`;
+    byId("pool-seed-total").textContent = number.format(seeds.length);
+    byId("pool-linked-total").textContent = number.format(added);
+    byId("pool-total").textContent = number.format(size);
+    byId("pool-rows").replaceChildren(...trace.support.map(node => {
+      const path = origins.get(node.id);
+      const detail = seedIds.has(node.id) ? `Search hit ${rankText(node.rank)}` : path
+        ? `Via ${path.from.title} (${rankText(path.from.rank)})` : "Outside the shortlist";
+      return rowFor(node, { detail });
+    }));
+    renderResults();
+    document.dispatchEvent(new CustomEvent("secondhop:state", { detail: { sample, families: enabled, result } }));
+  }
+
+  async function loadExample(id, updateUrl = true) {
+    const requestId = ++loadId;
+    stopReplay();
+    sample = examples.find(example => example.id === id) ?? examples[0];
+    trace = result = null;
+    chooseCase.value = sample.id;
+    familyControls.find(input => input.dataset.family === "S").disabled = sample.dataset === "MuSiQue";
+    byId("flow-dataset").textContent = sample.dataset;
+    byId("flow-question").textContent = sample.question;
+    byId("flow-loading").hidden = false;
+    byId("flow-error").hidden = true;
+    surface.setAttribute("aria-busy", "true");
+    for (const id of ["step-corpus", "step-search", "step-links", "step-pool", "step-results"]) byId(id).textContent = "—";
+    showStage(stage, false, updateUrl);
+    try {
+      if (!traces.has(sample.id)) {
+        const slug = sample.id;
+        const example = sample;
+        const response = await fetch(`assets/traces/${slug}.json`);
+        if (!response.ok) throw new Error(`Trace HTTP ${response.status}`);
+        traces.set(slug, prepare(example, records[slug], await response.json()));
+      }
+      if (requestId !== loadId) return;
+      trace = traces.get(sample.id);
+      renderWalkthrough();
+      showStage(stage, false, false);
+      openHash();
+    } catch (error) {
+      if (requestId !== loadId) return;
+      trace = result = null;
+      showStage(stage, false, false);
+      byId("flow-error").hidden = false;
+      console.error(error);
+    } finally {
+      if (requestId === loadId) {
+        byId("flow-loading").hidden = true;
+        surface.setAttribute("aria-busy", "false");
       }
     }
   }
 
-  modeButtons.forEach(control => control.addEventListener("click", () => {
-    mode = control.dataset.mode;
-    renderReach(true);
-  }));
-  filters.forEach(control => control.addEventListener("change", () => {
-    mode = "links";
-    renderReach(control.checked);
-  }));
-  replay.addEventListener("click", () => {
-    if (mode === "search") {
-      mode = "links";
-      renderReach(true);
-    } else {
-      playTrace();
-    }
+  function openPassage(id) {
+    const node = trace?.passages.get(id);
+    if (!node) return;
+    if (research.open) research.close();
+    const path = result.origins.get(id);
+    currentPassage = node.id;
+    byId("passage-kind").textContent = node.supporting ? "Supporting passage" : "Passage";
+    byId("passage-title").textContent = node.title;
+    byId("passage-text").textContent = node.text ?? "Open the Wikipedia reference to read about this passage.";
+    byId("signal-words").textContent = rankText(node.words);
+    byId("signal-meaning").textContent = rankText(node.meaning);
+    byId("signal-fused").textContent = rankText(node.rank);
+    byId("passage-path").textContent = result.seedIds.has(id) ? `Started as search hit ${rankText(node.rank)}.` : path
+      ? `Entered the shortlist through ${path.from.title} (${rankText(path.from.rank)}) via ${pathLabel(path)}.` : "Outside this shortlist.";
+    const ranking = boosted ? result.boosted : result.base;
+    const position = ranking.findIndex(entry => entry.node.id === id);
+    const bonus = boosted ? (path?.strength ?? 0) * Number(boostControl.value) : 0;
+    byId("passage-score").textContent = `Fused score ${scoreText(node.score)} · Link bonus ${scoreText(bonus)}${position >= 0 ? ` · Final rank #${position + 1}` : ""}`;
+    byId("passage-source").href = articleURL(node.title, Boolean(node.text));
+    byId("passage-trace").hidden = !path;
+    if (!evidence.open) evidence.showModal();
+  }
+
+  function openArchive(target) {
+    if (evidence.open) evidence.close();
+    for (const pane of archivePanes) pane.hidden = pane.id !== target;
+    for (const button of archiveButtons) button.setAttribute("aria-pressed", String(button.dataset.archiveTarget === target));
+    if (!research.open) research.showModal();
+    research.querySelector(".research-content").scrollTop = 0;
+  }
+
+  function openHash() {
+    const fragment = window.location.hash.slice(1);
+    const nextStage = knownStage();
+    if (nextStage) showStage(nextStage, false, false);
+    if (archivePanes.some(pane => pane.id === fragment)) openArchive(fragment);
+    if (fragment === "evidence" && trace) openPassage((trace.support[1] ?? trace.support[0]).id);
+  }
+
+  function applySettings() {
+    stopReplay();
+    byId("flow-boost-value").textContent = `${boostControl.value}×`;
+    writeLocation();
+    renderWalkthrough();
+  }
+
+  if (budgets.includes(Number(params.get("budget")))) budgetControl.value = params.get("budget");
+  if (["0", "0.5", "1", "1.5", "2"].includes(params.get("boost"))) boostControl.value = params.get("boost");
+  if (params.has("links") && /^[SRNK]*$/.test(params.get("links"))) {
+    for (const control of familyControls) control.checked = params.get("links").includes(control.dataset.family);
+  }
+  byId("flow-boost-value").textContent = `${boostControl.value}×`;
+  for (const example of examples) chooseCase.add(new Option(example.label, example.id));
+
+  chooseCase.addEventListener("change", () => loadExample(chooseCase.value));
+  byId("flow-retry").addEventListener("click", () => loadExample(chooseCase.value));
+  for (const control of [budgetControl, ...familyControls]) control.addEventListener("change", applySettings);
+  boostControl.addEventListener("input", () => {
+    boosted = true;
+    applySettings();
   });
+  tune.addEventListener("click", () => {
+    if (settings.hidden) stopReplay();
+    setSettings(settings.hidden);
+  });
+  function navigateTo(id) {
+    stopReplay();
+    setSettings(false);
+    showStage(id);
+  }
+  stepButtons.forEach(button => button.addEventListener("click", () => navigateTo(button.dataset.stage)));
+  next.addEventListener("click", () => navigateTo(stages[stages.indexOf(stage) + 1]));
+  back.addEventListener("click", () => navigateTo(stages[stages.indexOf(stage) - 1]));
+  play.addEventListener("click", playStages);
+  for (const [id, mode] of [["finish-base", false], ["finish-boosted", true]]) {
+    byId(id).addEventListener("click", () => {
+      boosted = mode;
+      renderResults();
+    });
+  }
+  byId("evidence-close").addEventListener("click", () => evidence.close());
+  byId("passage-trace").addEventListener("click", () => {
+    const path = result.origins.get(currentPassage);
+    evidence.close();
+    navigateTo("links");
+    document.dispatchEvent(new CustomEvent("secondhop:route", { detail: path }));
+  });
+  for (const link of document.querySelectorAll("[data-open-research]")) link.addEventListener("click", event => {
+    event.preventDefault();
+    stopReplay();
+    openArchive(link.hash.slice(1));
+  });
+  archiveButtons.forEach(button => button.addEventListener("click", () => openArchive(button.dataset.archiveTarget)));
+  byId("research-close").addEventListener("click", () => research.close());
+  document.addEventListener("secondhop:passage", ({ detail }) => openPassage(detail));
   document.addEventListener("secondhop:links", ({ detail }) => {
-    for (const control of filters) control.checked = detail.includes(control.dataset.family);
-    mode = "links";
-    renderReach(true);
+    for (const control of familyControls) if (!control.disabled) control.checked = detail.includes(control.dataset.family);
+    applySettings();
   });
-  document.addEventListener("secondhop:passage", ({ detail }) => {
-    if (graphNodes.has(detail)) selectNode(detail);
+  window.addEventListener("hashchange", () => {
+    stopReplay();
+    openHash();
   });
-  const requested = new URLSearchParams(window.location.search).get("case");
-  buildCasePicker();
-  openCase(examples.find(example => example.id === requested) ?? examples[0]);
-  new ResizeObserver(() => drawGraph()).observe(scene);
+  new ResizeObserver(() => {
+    if (trace && stage === "corpus") paintCorpus();
+  }).observe(corpusCanvas);
+  loadExample(params.get("case"), false);
 })();
