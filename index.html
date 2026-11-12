@@ -14,15 +14,18 @@
   <link rel="preload" href="assets/instrument-serif-italic.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="assets/site.css">
   <link rel="stylesheet" href="assets/experiments.css?v=4">
-  <link rel="stylesheet" href="assets/galaxy.css?v=2">
+  <link rel="stylesheet" href="assets/galaxy.css?v=3">
+  <link rel="stylesheet" href="assets/pipeline.css?v=2">
   <script defer src="assets/examples.js"></script>
   <script defer src="assets/pipeline-data.js"></script>
-  <script defer src="assets/retrieval.js?v=3"></script>
+  <script defer src="assets/retrieval.js?v=4"></script>
   <script defer src="assets/vendor/d3.min.js"></script>
   <script defer src="assets/links.js?v=6"></script>
-  <script defer src="assets/scene.js?v=5"></script>
+  <script defer src="assets/scene.js?v=6"></script>
+  <script defer src="assets/simulation.js?v=2"></script>
+  <script defer src="assets/pipeline-ui.js?v=2"></script>
   <script defer src="assets/experiments.js?v=4"></script>
-  <script defer src="assets/app.js?v=9"></script>
+  <script defer src="assets/app.js?v=10"></script>
 </head>
 <body id="top">
   <a class="skip-link" href="#main">Skip to content</a>
@@ -70,7 +73,7 @@
               <p id="graph-scope"></p>
             </div>
             <div class="galaxy-actions">
-              <button type="button" class="ghost-button" id="graph-heat" aria-pressed="true" title="Colour the graph by how many passages are nearby">Density</button>
+              <button type="button" class="ghost-button" id="graph-pipeline" aria-controls="run-panel">Run pipeline →</button>
               <button type="button" class="ghost-button" id="graph-pause" aria-pressed="false">Pause</button>
               <button type="button" class="galaxy-primary" id="graph-shrink" aria-pressed="false">Shrink pool <span aria-hidden="true">↘</span></button>
             </div>
@@ -91,7 +94,7 @@
               <button type="button" id="scene-plus" aria-label="Zoom in">+</button>
               <button type="button" id="scene-reset" title="Fit the cluster to the view">Fit</button>
             </div>
-            <div class="galaxy-heat-key" id="graph-heat-key"><span aria-hidden="true"></span> More passages nearby</div>
+            <div class="graph-run-readout" id="graph-run-readout" hidden></div>
             <button type="button" class="graph-open-passage" id="graph-open-passage" hidden></button>
           </div>
           <div class="galaxy-footer">
@@ -102,8 +105,7 @@
         <aside class="galaxy-inspector" aria-label="Passages and search controls">
           <nav class="inspector-tabs" aria-label="Graph panels">
             <button type="button" data-panel="inspect" aria-controls="inspect" aria-pressed="true">Inspect</button>
-            <button type="button" data-panel="lab" aria-controls="lab" aria-pressed="false">Seeds</button>
-            <button type="button" data-panel="rankers" aria-controls="rankers" aria-pressed="false">Top five</button>
+            <button type="button" id="run-tab" aria-controls="run-panel" aria-pressed="false">Pipeline</button>
           </nav>
           <section class="inspector-panel" id="inspect" aria-label="Inspect a passage">
             <label class="galaxy-search" for="passage-find">Find a passage<input id="passage-find" type="search" autocomplete="off" placeholder="Search the visible cluster"></label>
@@ -129,22 +131,94 @@
               <button type="button" class="ghost-button" id="inspect-more" hidden></button>
             </article>
           </section>
-          <section class="inspector-panel" id="lab" aria-labelledby="seed-heading" hidden>
+          <div id="run-panel" hidden>
+            <nav class="run-steps" aria-label="Pipeline steps">
+              <button type="button" data-panel="lab" aria-controls="lab">Seeds</button>
+              <button type="button" data-panel="ppr" aria-controls="ppr">PPR</button>
+              <button type="button" data-panel="pool" aria-controls="pool">Pool</button>
+              <button type="button" data-panel="features" aria-controls="features">Inputs</button>
+              <button type="button" data-panel="models" aria-controls="models">Models</button>
+              <button type="button" data-panel="rankers" aria-controls="rankers">Top five</button>
+            </nav>
+            <div class="run-transport">
+              <button type="button" id="run-back" class="ghost-button">← Back</button>
+              <a class="section-link run-to-graph" href="#scene-field">Show graph ↑</a>
+              <button type="button" id="run-next" class="ghost-button">Next: PPR →</button>
+            </div>
+            <p id="run-loading" class="run-loading" role="status" hidden>Loading recorded feature data…</p>
+            <div id="run-error" class="run-loading" hidden><p>The feature data couldn’t load.</p><button type="button" class="ghost-button" id="run-retry">Try again</button></div>
+          <section class="inspector-panel run-section" id="lab" aria-labelledby="seed-heading" hidden>
             <h2 id="seed-heading">Starting passages</h2>
             <div class="inspector-settings">
               <label for="flow-budget">Seed budget<select id="flow-budget"><option value="5">5 hits</option><option value="25">25 hits</option><option value="100">100 hits</option><option value="200">200 hits</option></select></label>
               <label for="graph-depth">Neighbourhood<select id="graph-depth"><option value="25">25 hits + neighbours</option><option value="100">100 hits + neighbours</option><option value="200">200 hits + neighbours</option></select></label>
             </div>
             <p class="inspect-instruction" id="search-summary"></p>
+            <div class="run-options" role="group" aria-label="Visualize search signals"><button type="button" data-search-signal="words" aria-pressed="false">Words</button><button type="button" data-search-signal="meaning" aria-pressed="false">Meaning</button><button type="button" data-search-signal="score" aria-pressed="true">Fused</button></div>
+            <div id="seed-fusion"></div>
             <ol class="inspect-connections" id="search-rows"></ol>
             <div class="inspector-buttons"><button type="button" class="ghost-button" id="search-all" hidden></button><button type="button" class="ghost-button" id="search-reset" hidden>Restore seeds</button></div>
           </section>
-          <section class="inspector-panel" id="rankers" aria-labelledby="finish-title" hidden>
-            <h2 id="finish-title">Final top five</h2>
-            <p class="inspect-instruction" id="finish-summary"></p>
-            <label class="boost-setting" for="flow-boost">Link boost <output id="flow-boost-value" for="flow-boost">1×</output><input id="flow-boost" type="range" min="0" max="2" step="0.5" value="1"></label>
-            <ol class="inspect-connections" id="finish-rows"></ol>
-          </section>
+            <section class="inspector-panel run-section" id="ppr" aria-labelledby="ppr-title" hidden>
+              <h2 id="ppr-title">Personalized PageRank</h2>
+              <p class="inspect-instruction">Start with one unit of mass. Each round sends some back to the restart passages and distributes the rest across weighted links.</p>
+              <div class="run-fields">
+                <label for="ppr-kind">Restart distribution<select id="ppr-kind"><option value="single">One seed</option><option value="uniform">All active seeds</option><option value="mixed">Seeds + fused search</option></select></label>
+                <label for="ppr-seed" id="ppr-seed-label">Seed<select id="ppr-seed"></select></label>
+                <label class="run-range" for="ppr-restart">Restart probability <output id="ppr-restart-value" for="ppr-restart">50%</output><input id="ppr-restart" type="range" min="0.1" max="0.9" step="0.05" value="0.5"></label>
+              </div>
+              <div class="run-controls"><button type="button" id="ppr-play" class="ghost-button">Play rounds</button><button type="button" id="ppr-step" class="ghost-button">Step +1</button><button type="button" id="ppr-end" class="ghost-button">Round 50</button></div>
+              <label class="run-range run-round" for="ppr-round">Round <output id="ppr-round-value" for="ppr-round">0 / 50</output><input id="ppr-round" type="range" min="0" max="50" step="1" value="0"></label>
+              <p class="run-math" id="ppr-equation"></p>
+              <p class="run-note" id="ppr-status"></p>
+              <ol class="inspect-connections" id="ppr-top"></ol>
+              <details class="run-details" id="ppr-details" open><summary id="ppr-probe-title">Mass at a passage</summary><div id="ppr-probe"></div></details>
+              <details class="run-details"><summary>Transition weights</summary><p>Hyperlink and title rule: 1 each. Shared names: sum of inverse document frequencies. Semantic: recorded cosine. A passage splits outgoing mass in proportion to these weights and keeps it if isolated.</p><a class="section-link" href="https://doi.org/10.1145/775152.775191" target="_blank" rel="noopener">Personalized PageRank reference ↗</a></details>
+            </section>
+            <section class="inspector-panel run-section" id="pool" aria-labelledby="pool-title" hidden>
+              <h2 id="pool-title">Build the shortlist</h2>
+              <div class="run-options" role="group" aria-label="Shortlist method"><button type="button" data-pool-method="direct" aria-pressed="true">Direct neighbours</button><button type="button" data-pool-method="walk" aria-pressed="false">Walk + cosine</button></div>
+              <p class="inspect-instruction" id="pool-rule"></p>
+              <label for="pool-limit" id="pool-limit-label" hidden>Extra passages<select id="pool-limit"><option value="25">25</option><option value="50" selected>50</option><option value="100">100</option><option value="200">200</option></select></label>
+              <p class="run-pool-count" id="pool-plan-count"></p>
+              <button type="button" class="galaxy-primary" id="pool-apply">Shrink pool ↘</button>
+              <p class="run-note" id="pool-probe"></p>
+              <ol class="inspect-connections" id="pool-preview"></ol>
+            </section>
+            <section class="inspector-panel run-section" id="features" aria-labelledby="features-title" hidden>
+              <h2 id="features-title">What the models read</h2>
+              <p class="inspect-instruction">Pick a passage on the graph or choose one here.</p>
+              <label for="feature-probe">Passage<select id="feature-probe"></select></label>
+              <div class="run-options feature-options" role="group" aria-label="Input families">
+                <button type="button" data-feature="search" aria-pressed="true">Search</button><button type="button" data-feature="structure" aria-pressed="false">Structure</button><button type="button" data-feature="walks" aria-pressed="false">Walks</button><button type="button" data-feature="hop" aria-pressed="false">Next hop</button>
+              </div>
+              <div id="feature-content"></div>
+              <details class="run-details"><summary>Raw values, z-scores and presence</summary><div id="feature-vector"></div></details>
+              <details class="run-details"><summary>All research input blocks</summary><div id="research-blocks"></div></details>
+              <button type="button" class="ghost-button" id="feature-read">Read passage</button>
+            </section>
+            <section class="inspector-panel run-section" id="models" aria-labelledby="model-title" hidden>
+              <h2 id="model-title">Score the same inputs</h2>
+              <p class="inspect-instruction">Live simulation with demonstration weights. Both models start with the same passage features.</p>
+              <div class="run-options" role="group" aria-label="Model simulation"><button type="button" data-model="mlp" aria-pressed="true">MLP</button><button type="button" data-model="gnn" aria-pressed="false">GNN</button></div>
+              <label for="model-probe">Passage<select id="model-probe"></select></label>
+              <div id="model-layers" class="model-layers" role="group" aria-label="Model layers"></div>
+              <div class="run-controls"><button type="button" class="ghost-button" id="model-play">Play model</button><button type="button" class="ghost-button" id="model-step">Next layer</button><button type="button" class="ghost-button" id="model-reset">Reset</button></div>
+              <div id="model-content"></div>
+              <details class="run-details"><summary>Research model shapes</summary>
+                <p><strong>MLP:</strong> Two 128-wide GELU layers score each passage, with a learned contribution from its standardized fused score.</p>
+                <p><strong>GNN:</strong> A 64-wide state passes through three typed neighbour updates. The updates combine per-family means and question-conditioned attention.</p>
+                <p><strong>Next-hop scorer:</strong> Fourteen anchor–candidate inputs feed two 32-wide layers and a bilinear score before normalization within the anchor’s neighbours.</p>
+              </details>
+            </section>
+            <section class="inspector-panel run-section" id="rankers" aria-labelledby="finish-title" hidden>
+              <h2 id="finish-title">Final top five</h2>
+              <div class="run-options" role="group" aria-label="Compare rankings"><button type="button" data-rank="ppr" aria-pressed="false">PPR</button><button type="button" data-rank="mlp" aria-pressed="true">MLP demo</button><button type="button" data-rank="gnn" aria-pressed="false">GNN demo</button></div>
+              <p class="inspect-instruction" id="finish-summary"></p>
+              <ol class="inspect-connections" id="finish-rows"></ol>
+              <a class="section-link" href="#recorded" data-open-research>Compare saved model results ↗</a>
+            </section>
+          </div>
         </aside>
       </div>
       <noscript><p class="galaxy-loading">Enable JavaScript to explore the passage graph.</p></noscript>
@@ -220,8 +294,8 @@
       <h2 id="method-title">Data and methods</h2>
       <div class="method-grid">
         <article><h3>First search</h3><p>Dense and sparse retrievers order the passages by meaning and words. <a href="https://doi.org/10.1145/1571941.1572114">Reciprocal rank fusion</a> combines those orders.</p></article>
-        <article><h3>Pool replay</h3><p>Each selected search hit contributes its direct neighbours from the enabled link types. Duplicate passages count once. The opening graph contains the neighbours of the first 25, 100, or 200 search hits. Shrinking keeps the active seeds and the passages they can reach. Link density counts each pair once. Large views draw fewer background lines; all enabled links still affect the layout and density.</p></article>
-        <article><h3>Ranking replay</h3><p>The demo adds a bonus to each neighbour based on its best connected search hit. The bonus equals that hit’s fused score times the number of enabled link types on the connection, divided by four, times the chosen boost. The saved MLP and GNN runs used a fixed shortlist and seed 0.</p></article>
+        <article><h3>Pool replay</h3><p>Explore the neighbours of the first 25, 100, or 200 search hits. The browser can keep direct neighbours or combine a 50-round PPR order with question cosine. The research shortlist uses local push walks, semantic rank fusion, and a rank mass cutoff. Link density counts each connected pair once.</p></article>
+        <article><h3>Model simulations</h3><p>The browser scores seven example signals with small, fixed demonstration weights. The MLP reads each row independently; the GNN adds three rounds of neighbour updates. The saved results come from trained models on their original research pools.</p></article>
       </div>
       <div class="scale-band">
         <div><h3>At full-corpus scale</h3><p>Recorded development run for <span id="scale-dataset">2Wiki</span>.</p></div>

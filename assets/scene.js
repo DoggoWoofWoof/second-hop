@@ -15,8 +15,6 @@
   function graphScene(canvas, handlers) {
     const field = canvas.parentElement;
     const ctx = canvas.getContext("2d");
-    const heatLayer = document.createElement("canvas");
-    const heatCtx = heatLayer.getContext("2d");
     const motion = matchMedia("(prefers-reduced-motion: reduce)");
     const linkForce = d3.forceLink().id(node => node.id);
     const charge = d3.forceManyBody().strength(-22).distanceMax(195);
@@ -43,6 +41,7 @@
     let fading = [];
     let departing = [];
     let selected = null;
+    let signal = null;
     let hover = null;
     let pointer = null;
     let width = 0, height = 0, frame = 0, clock = 0, lastTick = 0, lastPaint = 0;
@@ -50,11 +49,9 @@
     let destination = null;
     let hasFit = false;
     let paused = motion.matches;
-    let showHeat = true;
     let panTouch = false;
     let visible = true;
     let forceFit = true;
-    let heatDue = 0;
     let hits = [];
     let strokes = [];
 
@@ -66,7 +63,7 @@
       if (fresh) {
         layout.clear();
         nodes = links = departing = fading = [];
-        selected = hover = destination = null;
+        selected = signal = hover = destination = null;
         camera = { x: 0, y: 0, scale: 1 };
         hasFit = false;
         forceFit = true;
@@ -116,7 +113,6 @@
       simulation.alpha(fresh ? 1 : .7);
       if (fresh || motion.matches) simulation.tick(n > 1200 ? 9 : motion.matches ? 24 : 13);
       if (selected && !model.ids.has(selected.id)) selected = null;
-      heatDue = 0;
       lastPaint = 0;
       schedule();
     }
@@ -141,7 +137,6 @@
         camera = value;
         destination = null;
       }
-      heatDue = 0;
       schedule();
     }
 
@@ -154,6 +149,15 @@
 
     function setFocus(id, routes) {
       selected = id == null ? null : { id, routes };
+      schedule();
+    }
+
+    function setSignal(spec) {
+      if (!spec) signal = null;
+      else signal = {
+        ...spec, previous: signal?.values, start: performance.now(),
+        paths: new Map((spec.paths ?? []).map(path => [path.edge.key, path])),
+      };
       schedule();
     }
 
@@ -194,56 +198,17 @@
         const p = clamp((now - destination.start) / 480, 0, 1);
         const ease = p * p * (3 - 2 * p);
         for (const key of ["x", "y", "scale"]) camera[key] = mix(destination.from[key], destination.to[key], ease);
-        heatDue = 0;
         if (p === 1) destination = null;
       }
       const ratio = Math.min(devicePixelRatio || 1, 2);
       ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
       ctx.clearRect(0, 0, width, height);
-      if (showHeat && nodes.length) {
-        if (now >= heatDue) {
-          paintDensity();
-          heatDue = now + 108;
-        }
-        ctx.drawImage(heatLayer, 0, 0, width, height);
-      }
       fading = fading.filter(link => now - link.exit < 620);
       departing = departing.filter(node => now - node.exit < 820);
       paintLinks(now);
       paintNodes(now);
-      if (!paused || destination || departing.length || fading.length || nodes.some(node => now - node.enter < 520)) schedule();
-    }
-
-    function paintDensity() {
-      const columns = Math.max(24, Math.round(width / 8));
-      const rows = Math.max(25, Math.round(height / 8));
-      heatLayer.width = columns;
-      heatLayer.height = rows;
-      const grid = new Float32Array(columns * rows);
-      for (const node of nodes) {
-        const p = projection(node);
-        const x = Math.floor(p.x * columns / width), y = Math.floor(p.y * rows / height);
-        for (let dy = -5; dy <= 5; dy++) {
-          const row = y + dy;
-          if (row < 0 || row >= rows) continue;
-          for (let dx = -5; dx <= 5; dx++) {
-            const column = x + dx;
-            const distance = dx * dx + dy * dy;
-            if (column < 0 || column >= columns || distance > 29) continue;
-            grid[row * columns + column] += densityKernel[distance];
-          }
-        }
-      }
-      const pixels = heatCtx.createImageData(columns, rows);
-      for (let i = 0; i < grid.length; i++) {
-        const t = 1 - Math.exp(-grid[i] / 8);
-        const offset = i * 4;
-        pixels.data[offset] = mix(109, 255, t);
-        pixels.data[offset + 1] = mix(65, 159, t);
-        pixels.data[offset + 2] = mix(171, 185, t);
-        pixels.data[offset + 3] = t * 148;
-      }
-      heatCtx.putImageData(pixels, 0, 0);
+      if (!paused || destination || departing.length || fading.length || nodes.some(node => now - node.enter < 520) ||
+          (signal && now - signal.start < 720 && !motion.matches)) schedule();
     }
 
     function curve(a, b, i, count) {
@@ -270,13 +235,15 @@
       const highlightedIds = new Set(selected ? [selected.id] : []);
       const count = links.length;
       const stride = Math.max(1, Math.ceil((count + fading.length) / (camera.scale >= 1.6 ? 7400 : 4500)));
+      const travel = signal ? clamp((now - signal.start) / 680, 0, 1) : 1;
       let index = 0;
       for (const link of [...links, ...fading]) {
         const focus = selected?.routes.get(link.edge.key);
+        const transfer = signal?.paths.get(link.edge.key);
         const hovered = hover?.id === link.source.id || hover?.id === link.target.id || hover?.edge?.key === link.edge.key;
         const spotlight = (link.source.seed && (stride === 1 || link.source.passage.rank <= 5)) ||
           (link.target.seed && (stride === 1 || link.target.passage.rank <= 5));
-        if (index++ % stride && !focus && !hovered && !spotlight) continue;
+        if (index++ % stride && !focus && !transfer && !hovered && !spotlight) continue;
         const a = projection(link.source);
         const b = projection(link.target);
         if ((a.x < -10 && b.x < -10) || (a.x > width + 10 && b.x > width + 10) ||
@@ -285,19 +252,20 @@
         for (const [index, type] of link.types.entries()) {
           const mid = curve(a, b, index, link.types.length);
           const chosen = focus?.has(type);
-          const hot = chosen || (hovered && (!hover.edge || hover.type === type));
+          const hot = chosen || Boolean(transfer) || (hovered && (!hover.edge || hover.type === type));
           const edge = { edge: link.edge, type, a, mid, b, hot, featured: spotlight || hot };
           const transition = link.exit ? clamp(1 - (now - link.exit) / 620, 0, 1)
             : link.enter ? clamp((now - link.enter) / 430, 0, 1) : 1;
           if (!link.exit) strokes.push(edge);
           if (hot || (spotlight && !selected) || transition < 1) {
             const alpha = hot ? .94 : spotlight && !selected ? .52 : selected ? .055 : .22;
-            front.push({ ...edge, alpha: alpha * transition, sparkle: chosen && !paused });
+            front.push({ ...edge, alpha: alpha * transition, sparkle: chosen && !paused,
+              flow: index === 0 ? transfer : null, forward: transfer?.from === link.source.id });
           } else drawCurve(pools.get(type), a, mid, b);
         }
       }
       for (const [type, path] of pools) {
-        ctx.globalAlpha = selected ? .053 : count > 2500 ? .10 : .23;
+        ctx.globalAlpha = selected || signal ? .063 : count > 2500 ? .10 : .23;
         ctx.lineWidth = .83;
         ctx.strokeStyle = families[type].color;
         ctx.setLineDash(count > 2200 ? [] : families[type].dash);
@@ -305,7 +273,7 @@
       }
       front.sort((a, b) => a.alpha - b.alpha);
       for (const edge of front) {
-        const { a, mid, b, type, hot, alpha, sparkle } = edge;
+        const { a, mid, b, type, hot, alpha, sparkle, flow, forward } = edge;
         ctx.strokeStyle = families[type].color;
         ctx.globalAlpha = alpha;
         ctx.lineWidth = hot ? 2 : 1.1;
@@ -320,6 +288,13 @@
           ctx.arc(p.x, p.y, 2.5, 0, Math.PI * 2);
           ctx.fill();
         }
+        if (flow && travel < 1 && !motion.matches) {
+          const p = curvePoint(a, mid, b, forward ? travel : 1 - travel);
+          ctx.fillStyle = gold;
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, 2.8 + Math.min(2, Math.sqrt(Math.abs(flow.amount))), 0, Math.PI * 2);
+          ctx.fill();
+        }
       }
       ctx.globalAlpha = 1;
       ctx.setLineDash([]);
@@ -331,6 +306,7 @@
       const labels = [];
       const focused = paintNodes.focused;
       const compact = nodes.length > 650;
+      const easing = signal && !motion.matches ? clamp((now - signal.start) / 420, 0, 1) : 1;
       for (const node of [...nodes, ...departing]) {
         const p = projection(node);
         const fade = node.exit ? clamp(1 - (now - node.exit) / 820, 0, 1) : clamp((now - node.enter) / 520, .07, 1);
@@ -339,16 +315,18 @@
           p.y += (p.y - height * .53) * (1 - fade) * .12;
         }
         if (p.x < -12 || p.x > width + 12 || p.y < -12 || p.y > height + 12) continue;
-        const current = selected?.id === node.id || hover?.id === node.id || pointer?.node?.id === node.id;
+        const current = selected?.id === node.id || signal?.focus === node.id || hover?.id === node.id || pointer?.node?.id === node.id;
         const bright = current || focused.has(node.id);
-        const r = (current ? 5.8 : node.seed ? 4.9 : node.passage.supporting ? 4.3 : compact ? 1.65 : 2.35) * clamp(Math.sqrt(camera.scale), .72, 1.45);
-        const color = node.seed ? gold : violet;
-        ctx.globalAlpha = fade * (bright ? 1 : selected ? .27 : node.highlight ? .97 : .67);
+        const value = mix(signal?.previous?.get(node.id) ?? 0, signal?.values?.get(node.id) ?? 0, easing);
+        const intensity = Math.sqrt(Math.max(0, value));
+        const r = ((current ? 5.8 : node.seed ? 4.9 : node.passage.supporting ? 4.3 : compact ? 1.65 : 2.35) + intensity * 3.6) * clamp(Math.sqrt(camera.scale), .72, 1.45);
+        const color = node.seed || intensity > .6 ? gold : violet;
+        ctx.globalAlpha = fade * (bright ? 1 : signal ? .24 + intensity * .75 : selected ? .27 : node.highlight ? .97 : .67);
         ctx.fillStyle = color;
         ctx.beginPath();
         ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
         ctx.fill();
-        if (node.highlight || current || node.pinned) {
+        if (node.highlight || current || node.pinned || intensity > .3) {
           ctx.strokeStyle = color;
           ctx.globalAlpha *= current || node.pinned ? .88 : .48;
           ctx.lineWidth = current ? 1.5 : 1;
@@ -360,7 +338,7 @@
           const hit = { ...p, id: node.id, radius: Math.max(6, r + 3), node };
           hits.push(hit);
           const namedNeighbour = selected && focused.size <= 9 && focused.has(node.id);
-          if (current || namedNeighbour || (!selected && node.highlight && (node.passage.rank <= 4 || node.passage.supporting))) labels.push({ hit, current });
+          if (current || namedNeighbour || intensity > .69 || (!selected && node.highlight && (node.passage.rank <= 4 || node.passage.supporting))) labels.push({ hit, current });
         }
       }
       labels.sort((a, b) => Number(b.current) - Number(a.current) || Number(b.hit.node.seed) - Number(a.hit.node.seed));
@@ -472,7 +450,6 @@
         camera.x = pointer.camera.x - dx / camera.scale;
         camera.y = pointer.camera.y - dy / camera.scale;
       }
-      heatDue = 0;
       schedule();
     });
 
@@ -521,7 +498,6 @@
       canvas.width = Math.round(width * ratio);
       canvas.height = Math.round(height * ratio);
       if (forceFit) fit(false);
-      heatDue = 0;
       schedule();
     }).observe(canvas);
 
@@ -532,12 +508,10 @@
     document.fonts.ready.then(schedule);
 
     return {
-      show, setFocus, locate, pin, isPinned,
+      show, setFocus, setSignal, locate, pin, isPinned,
       pause: value => { paused = value; schedule(); },
-      heat: value => { showHeat = value; heatDue = 0; schedule(); },
     };
   }
 
-  const densityKernel = Array.from({ length: 30 }, (_, d) => Math.exp(-d / 10));
   window.SECOND_HOP_SCENE = graphScene;
 })();

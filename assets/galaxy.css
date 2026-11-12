@@ -97,18 +97,6 @@
 .scene-tools button:is(:hover, [aria-pressed="true"]) { border-color: #725583; background: #332640; color: var(--text); }
 #scene-pan { display: none; }
 @media (any-pointer: coarse), (max-width: 680px) { #scene-pan { display: block; } }
-.galaxy-heat-key {
-  position: absolute;
-  bottom: 13px;
-  left: 13px;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--muted);
-  font: 500 .66rem/1.2 var(--mono);
-  pointer-events: none;
-}
-.galaxy-heat-key span { width: 40px; height: 5px; border-radius: 5px; background: linear-gradient(90deg, #694794, #d794db, var(--gold)); }
 .graph-open-passage { display: none; position: absolute; left: 10px; right: auto; bottom: 42px; max-width: calc(100% - 20px); padding: 6px 8px; border: 1px solid #8c6b87; border-radius: 7px; background: #241b31f2; color: var(--gold); font: 650 .75rem/1.25 var(--body); text-align: left; }
 .galaxy-families { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 clamp(11px, 1.65vw, 20px) 11px; }
 .galaxy-family {
@@ -223,9 +211,6 @@
 .inspector-settings { margin-top: 12px; }
 .galaxy .seed-check { display: flex; align-items: center; gap: 4px; padding: 5px; border: 1px solid var(--rule); border-radius: 6px; }
 .galaxy input[type="checkbox"] { width: 16px; height: 16px; margin: 0; accent-color: var(--gold); }
-.galaxy .boost-setting { grid-template-columns: auto 1fr; margin-block: 10px; }
-.boost-setting output { color: var(--gold); }
-.boost-setting input { grid-column: 1 / -1; width: 100%; margin: 0; accent-color: var(--gold); }
 
 .flow-dialog { position: fixed; max-width: min(94vw, 920px); max-height: min(92svh, 820px); padding: 0; color: var(--text); background: var(--panel); border: 1px solid #685078; border-radius: 12px; }
 .flow-dialog::backdrop { background: #100d19d9; }
@@ -254,8 +239,6 @@
   .galaxy-field { height: clamp(310px, 88vw, 380px); }
   .galaxy-toolbar, .galaxy-footer { padding: 10px; }
   .galaxy-stats { gap: 7px 10px; }
-  .galaxy-heat-key { bottom: 15px; font-size: .6rem; }
-  .galaxy-heat-key span { width: 22px; }
   .site-nav { gap: 8px; }
   .site-nav a { font-size: .73rem; }
 }

@@ -14,9 +14,10 @@
   const chooseCase = byId("flow-case");
   const budget = byId("flow-budget");
   const depth = byId("graph-depth");
-  const boost = byId("flow-boost");
   const familyButtons = new Map();
   const panelButtons = [...document.querySelectorAll("[data-panel]")];
+  const steps = ["lab", "ppr", "pool", "features", "models", "rankers"];
+  const stepNames = ["Seeds", "PPR", "Pool", "Inputs", "Models", "Top five"];
   const research = byId("research");
   const archivePanes = [...document.querySelectorAll("[data-research-pane]")];
   const archiveButtons = [...document.querySelectorAll("[data-archive-target]")];
@@ -32,24 +33,25 @@
     exclusions.set(initial.id, new Set(ids));
   }
 
-  let panel = ["#lab", "#rankers"].includes(location.hash) ? location.hash.slice(1) : "inspect";
+  let panel = steps.includes(location.hash.slice(1)) ? location.hash.slice(1) : "inspect";
+  let lastStep = panel === "inspect" ? "lab" : panel;
   let shrunk = params.has("pool") ? params.get("pool") === "1" : ["#pool", "#shortlist", "#rankers"].includes(location.hash);
   let paused = motion.matches;
-  let showHeat = true;
-  let sample, trace, result, graph, selection;
+  let sample, trace, result, graph, planned, selection;
   let loadSequence = 0;
   let allSeeds = false;
   let allConnections = false;
   let searchMatches = [];
   const scene = window.SECOND_HOP_SCENE(byId("pipeline-canvas"), {
-    node: id => inspectNode(id),
+    node: id => { if (!runUI.probeFromGraph(id)) inspectNode(id); },
     edge: (edge, type) => inspectEdge(edge, type),
     clear: () => {
-      if (!selection) return;
+      if (panel !== "inspect" || !selection) return;
       selection = { id: selection.id, focused: false };
       renderInspector();
     },
   });
+  const runUI = window.SECOND_HOP_RUN_UI({ scene, rebuild: updateSettings, togglePool, readPassage: id => inspectNode(id, true), save: writeURL });
 
   function el(tag, className, text) {
     const item = document.createElement(tag);
@@ -70,12 +72,30 @@
   }
 
   function selectPanel(id, store = true) {
+    const usesWalk = panel === "ppr" && id === "pool" && runUI.followWalk();
     panel = id;
+    if (id !== "inspect") lastStep = id;
+    const step = steps.indexOf(id);
+    const inRun = step >= 0;
+    byId("run-tab").setAttribute("aria-pressed", String(inRun));
+    byId("run-panel").hidden = !inRun;
+    byId("graph-pipeline").textContent = inRun ? "Inspect passages" : "Run pipeline →";
+    byId("run-back").disabled = step <= 0;
+    byId("run-next").disabled = step >= steps.length - 1;
+    byId("run-next").textContent = step >= steps.length - 1 ? "Finished" : "Next: " + stepNames[step + 1] + " →";
     for (const control of panelButtons) {
       const active = control.dataset.panel === id;
-      control.setAttribute("aria-pressed", String(active));
+      if (control.dataset.panel === "inspect") control.setAttribute("aria-pressed", String(active));
+      else if (active) control.setAttribute("aria-current", "step");
+      else control.removeAttribute("aria-current");
       byId(control.dataset.panel).hidden = !active;
     }
+    const wasShrunk = shrunk;
+    if (id === "ppr") shrunk = false;
+    if (["features", "models", "rankers"].includes(id)) shrunk = true;
+    if (graph && (wasShrunk !== shrunk || usesWalk)) renderGraph();
+    else if (graph) displayRun();
+    if (id === "inspect" && graph) renderInspector();
     if (store && trace) writeURL();
   }
 
@@ -85,13 +105,14 @@
     url.searchParams.set("budget", budget.value);
     url.searchParams.set("depth", depth.value);
     url.searchParams.set("links", Object.keys(families).filter(type => enabled.has(type)).join(""));
-    url.searchParams.set("boost", boost.value);
+    url.searchParams.delete("boost");
+    runUI.writeParams(url.searchParams);
     if (shrunk) url.searchParams.set("pool", "1");
     else url.searchParams.delete("pool");
     const skipped = exclusions.get(sample.id);
     if (skipped.size) url.searchParams.set("skip", [...skipped].join(","));
     else url.searchParams.delete("skip");
-    url.hash = panel === "inspect" ? (shrunk ? "pool" : "links") : panel;
+    url.hash = panel === "inspect" ? "links" : panel;
     history.replaceState(null, "", url);
   }
 
@@ -129,7 +150,8 @@
     byId("flow-question").textContent = example.question;
     if (!exclusions.has(example.id)) exclusions.set(example.id, new Set());
     if (previous && previous !== example) shrunk = false;
-    trace = result = graph = selection = undefined;
+    trace = result = graph = planned = selection = undefined;
+    runUI.display("inspect", null);
     allSeeds = allConnections = false;
     find.value = "";
     byId("graph-workspace").hidden = true;
@@ -170,8 +192,13 @@
     if (Number(depth.value) < n) depth.value = budget.value;
     for (const option of depth.options) option.disabled = Number(option.value) < n;
     const types = activeFamilies();
-    result = run(trace, n, types, Number(boost.value), exclusions.get(sample.id));
-    graph = neighbourhood(trace, Number(depth.value), types, result, shrunk);
+    const horizon = Number(depth.value);
+    result = run(trace, n, types, 0, exclusions.get(sample.id));
+    const wide = neighbourhood(trace, horizon, types, result, false);
+    const key = [sample.id, horizon, [...types].sort().join(""), [...result.seedIds].join(",")].join("/");
+    runUI.configure({ sample, trace, result, wide, key });
+    planned = runUI.getPlan();
+    graph = shrunk ? neighbourhood(trace, horizon, types, result, true, planned.ids) : wide;
     if (!selection || !graph.ids.has(selection.id)) {
       const id = result.seeds[0]?.id ?? graph.nodes[0]?.id;
       selection = id === undefined ? null : { id, focused: false };
@@ -180,8 +207,9 @@
     const edges = graph.pairs.filter(pair => pair.active.length).length;
     const size = graph.nodes.length;
     byId("graph-title").textContent = shrunk ? "Candidate pool" : "Search neighbourhood";
-    byId("graph-scope").textContent = shrunk ? format(size) + " of " + format(graph.scope) + " passages kept · " + result.support + "/" + trace.support.length + " supporting"
-      : depth.value + " search hits + neighbours · " + format(result.size) + " in the shortlist";
+    const support = trace.support.filter(node => planned.ids.has(node.id)).length;
+    byId("graph-scope").textContent = shrunk ? format(size) + " of " + format(graph.scope) + " passages kept · " + support + "/" + trace.support.length + " supporting"
+      : depth.value + " search hits + neighbours · " + format(planned.ids.size) + " in the shortlist";
     byId("graph-nodes").textContent = format(size);
     byId("graph-edges").textContent = format(edges);
     byId("graph-density").textContent = percent(size > 1 ? 2 * edges / (size * (size - 1)) : 0);
@@ -201,8 +229,14 @@
     }
     renderInspector();
     renderSearch();
-    renderRanking();
+    displayRun();
     renderFind();
+  }
+
+  function displayRun() {
+    const needsPool = ["features", "models", "rankers"].includes(panel);
+    const pool = needsPool ? (shrunk ? graph : neighbourhood(trace, Number(depth.value), activeFamilies(), result, true, planned.ids)) : null;
+    runUI.display(panel, { graph, pool, shrunk });
   }
 
   function rowFor(node, detail, action, types = []) {
@@ -383,7 +417,7 @@
     let routes = word?.routes;
     if (!routes && edge) routes = new Map([[edge.key, new Set([selection.type])]]);
     if (!routes) routes = new Map(incident.map(item => [item.key, new Set(item.active)]));
-    scene.setFocus(selection.focused ? node.id : null, routes);
+    if (panel === "inspect") scene.setFocus(selection.focused ? node.id : null, routes);
   }
 
   function renderFind() {
@@ -412,7 +446,8 @@
           shrunk = false;
           renderGraph();
         }
-        inspectNode(node.id, true);
+        if (runUI.probeFromGraph(node.id)) scene.locate(node.id);
+        else inspectNode(node.id, true);
       });
       const label = el("label", "seed-check");
       const check = el("input");
@@ -438,13 +473,9 @@
     toggle.textContent = allSeeds ? "Show fewer hits" : "Show all " + hits.length + " hits";
   }
 
-  function renderRanking() {
-    const rows = result.boosted;
-    const support = rows.filter(row => row.node.supporting).length;
-    byId("flow-boost-value").textContent = boost.value + "×";
-    byId("finish-summary").textContent = format(result.size) + " shortlist passages · " + support + "/" + trace.support.length + " supporting in the top five.";
-    byId("finish-rows").replaceChildren(...rows.map(({ node, total }, index) => rowFor(node,
-      "Rank " + (index + 1) + " · " + total.toFixed(4) + (node.supporting ? " · Supporting" : ""), () => inspectNode(node.id, true))));
+  function togglePool() {
+    shrunk = !shrunk;
+    updateSettings();
   }
 
   function updateSettings() {
@@ -464,16 +495,15 @@
     const hash = location.hash.slice(1);
     if (archivePanes.some(pane => pane.id === hash)) openArchive(hash);
     if (!trace) return;
-    if (["top", "corpus", "pool", "shortlist", "links"].includes(hash)) {
-      shrunk = ["pool", "shortlist"].includes(hash);
+    if (["top", "corpus", "shortlist", "links"].includes(hash)) {
+      shrunk = hash === "shortlist" || (hash === "links" && new URLSearchParams(location.search).get("pool") === "1");
       selectPanel("inspect", false);
       renderGraph();
-    } else if (["lab", "rankers"].includes(hash)) selectPanel(hash, false);
+    } else if (steps.includes(hash)) selectPanel(hash, false);
   }
 
   if (budgets.includes(Number(params.get("budget")))) budget.value = params.get("budget");
   if ([25, 100, 200].includes(Number(params.get("depth")))) depth.value = params.get("depth");
-  if (["0", "0.5", "1", "1.5", "2"].includes(params.get("boost"))) boost.value = params.get("boost");
   for (const dataset of new Set(examples.map(example => example.dataset))) chooseDataset.add(new Option(dataset, dataset));
   for (const [type, info] of Object.entries(families)) {
     const control = button("galaxy-family", undefined, () => {
@@ -493,13 +523,16 @@
   chooseCase.addEventListener("change", () => load(chooseCase.value));
   byId("graph-retry").addEventListener("click", () => load(chooseCase.value));
   for (const control of [budget, depth]) control.addEventListener("change", updateSettings);
-  boost.addEventListener("input", () => {
-    result = run(trace, Number(budget.value), activeFamilies(), Number(boost.value), exclusions.get(sample.id));
-    renderRanking();
-    writeURL();
-  });
   panelButtons.forEach(control => control.addEventListener("click", () => selectPanel(control.dataset.panel)));
-  byId("graph-shrink").addEventListener("click", () => { shrunk = !shrunk; updateSettings(); });
+  byId("run-tab").addEventListener("click", () => selectPanel(lastStep));
+  byId("run-back").addEventListener("click", () => selectPanel(steps[steps.indexOf(panel) - 1]));
+  byId("run-next").addEventListener("click", () => selectPanel(steps[steps.indexOf(panel) + 1]));
+  byId("graph-pipeline").addEventListener("click", () => {
+    const opening = panel === "inspect";
+    selectPanel(opening ? lastStep : "inspect");
+    if (opening && matchMedia("(max-width: 860px)").matches) byId("run-tab").scrollIntoView({ block: "center", behavior: motion.matches ? "auto" : "smooth" });
+  });
+  byId("graph-shrink").addEventListener("click", togglePool);
   const pauseControl = byId("graph-pause");
   function syncPause() {
     pauseControl.textContent = paused ? "Resume" : "Pause";
@@ -507,12 +540,6 @@
     scene.pause(paused);
   }
   pauseControl.addEventListener("click", () => { paused = !paused; syncPause(); });
-  byId("graph-heat").addEventListener("click", event => {
-    showHeat = !showHeat;
-    event.currentTarget.setAttribute("aria-pressed", String(showHeat));
-    byId("graph-heat-key").hidden = !showHeat;
-    scene.heat(showHeat);
-  });
   byId("inspect-pin").addEventListener("click", () => {
     scene.pin(selection.id, !scene.isPinned(selection.id));
     renderInspector();

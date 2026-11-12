@@ -63,14 +63,14 @@
     };
   }
 
-  function neighbourhood(trace, depth, enabled, result, shrunk) {
+  function neighbourhood(trace, depth, enabled, result, shrunk, keep) {
     let scope = trace.neighbourhoods.get(depth);
     if (!scope) {
       const widest = run(trace, depth, familyKeys, 0);
       scope = new Set([...widest.seedIds, ...widest.origins.keys()]);
       trace.neighbourhoods.set(depth, scope);
     }
-    const ids = shrunk ? new Set([...result.seedIds, ...result.origins.keys()]) : scope;
+    const ids = shrunk ? (keep ?? new Set([...result.seedIds, ...result.origins.keys()])) : scope;
     const pairs = [];
     const incident = new Map();
     const mask = familyMask(enabled);
