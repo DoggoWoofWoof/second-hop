@@ -11,6 +11,14 @@
   const smooth = t => t * t * (3 - 2 * t);
   const seedKey = id => "p" + id;
 
+  function segmentDistance(point, a, b) {
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const length = dx * dx + dy * dy;
+    const t = length ? clamp(((point.x - a.x) * dx + (point.y - a.y) * dy) / length, 0, 1) : 0;
+    return Math.hypot(point.x - (a.x + t * dx), point.y - (a.y + t * dy));
+  }
+
   function noise(id, salt) {
     const hash = Math.imul(id ^ Math.imul(salt, 0x9e3779b1), 0x45d9f3b);
     return ((hash ^ (hash >>> 16)) >>> 0) / 4294967296;
@@ -334,7 +342,7 @@
         const selected = located?.key === key;
         const hoveredEdge = hover?.route && hover.route === edge.route && hover.type === edge.type;
         const emphasize = selected || hoveredEdge || hover?.key === edge.from || hover?.key === edge.to;
-        if (edge.route) strokes.push({ edge, a, b, bend });
+        if (edge.route) strokes.push({ edge, a, b, bend, featured: edge.strong || selected });
         if (edge.strong || emphasize) {
           focused.push({ edge, a, b, bend, emphasize, selected });
           continue;
@@ -466,20 +474,29 @@
             at.y >= label.y - label.font && at.y <= label.y + 3) return box;
       }
       if (closest) return closest;
-      for (const { edge, a, b, bend } of strokes) {
+      let featuredEdge;
+      let featuredDistance = 5;
+      best = 6;
+      for (const { edge, a, b, bend, featured } of strokes) {
         if (at.x < Math.min(a.x, b.x) - 6 || at.x > Math.max(a.x, b.x) + 6 ||
             at.y < Math.min(a.y, b.y) - Math.abs(bend) - 6 || at.y > Math.max(a.y, b.y) + Math.abs(bend) + 6) continue;
         const steps = Math.max(8, Math.ceil(Math.hypot(b.x - a.x, b.y - a.y) / 14));
-        for (let i = 1; i < steps; i++) {
+        let previous = a;
+        for (let i = 1; i <= steps; i++) {
           const p = along(a, b, bend, i / steps);
-          const distance = Math.hypot(p.x - at.x, p.y - at.y);
-          if (distance < 6 && distance < best) {
+          const distance = segmentDistance(at, previous, p);
+          previous = p;
+          if (featured && distance < featuredDistance) {
+            featuredEdge = edge;
+            featuredDistance = distance;
+          }
+          if (distance < best) {
             closest = edge;
             best = distance;
           }
         }
       }
-      return closest;
+      return featuredEdge ?? closest;
     }
 
     function getTarget(event) {
