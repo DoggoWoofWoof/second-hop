@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="An interactive evidence map for multi-hop retrieval. Trace real benchmark questions and see what passage links bring within reach.">
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="theme-color" content="#100e19">
+  <meta name="color-scheme" content="dark">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'">
+  <title>Second Hop · Multi-hop retrieval playground</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23100e19'/%3E%3Cpath d='M8 23Q15 8 24 9' stroke='%23ffce8d' fill='none' stroke-width='2'/%3E%3Ccircle cx='8' cy='23' r='3' fill='%23bbabff'/%3E%3Ccircle cx='24' cy='9' r='3' fill='%23ffce8d'/%3E%3C/svg%3E">
+  <link rel="preload" href="assets/bricolage.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="assets/instrument-serif-italic.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="assets/site.css">
+  <script defer src="assets/examples.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="site-header" id="top">
+    <div class="shell header-inner">
+      <a class="brand" href="#top" aria-label="Second Hop home">
+        <svg viewBox="0 0 32 32" aria-hidden="true" focusable="false">
+          <rect x=".5" y=".5" width="31" height="31" rx="8" fill="none" stroke="currentColor" opacity=".25"/>
+          <path d="M8 23Q15 8 24 9" fill="none" stroke="currentColor" stroke-width="1.5"/>
+          <circle cx="8" cy="23" r="2.6" fill="#bbabff"/><circle cx="24" cy="9" r="2.6" fill="currentColor"/>
+        </svg>
+        <span>Second Hop</span>
+      </a>
+      <nav class="site-nav" aria-label="Main navigation">
+        <a href="#cases">Questions</a>
+        <a href="#method">Method <span aria-hidden="true">↗</span></a>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main" tabindex="-1">
+    <div class="shell hero">
+      <div class="intro">
+        <p class="overline"><span class="signal" aria-hidden="true"></span> Multi-hop retrieval playground</p>
+        <h1>Follow the <em>missing link.</em></h1>
+        <p class="intro-copy">A search can rank the passage you need hundreds of places too low. See which links bring it within reach.</p>
+        <a class="primary-action" href="#lab">Explore the evidence <span aria-hidden="true">↘</span></a>
+      </div>
+
+      <section class="lab" id="lab" aria-labelledby="map-title" tabindex="-1">
+        <div class="lab-head">
+          <div class="lab-meta">
+            <h2 id="map-title"><span class="map-symbol" aria-hidden="true"></span> Evidence map</h2>
+            <span class="dataset" id="dataset">2WikiMultihopQA</span>
+          </div>
+          <p class="question" id="question" aria-live="polite">What nationality is the director of film Blood Street?</p>
+          <div class="view-tabs" role="group" aria-label="Retrieval view">
+            <button type="button" data-mode="search" aria-pressed="false">First search</button>
+            <button type="button" data-mode="links" aria-pressed="true">Follow links</button>
+          </div>
+        </div>
+
+        <div class="scene">
+          <div class="plot" id="scene">
+            <canvas id="edges" aria-hidden="true"></canvas>
+            <div class="nodes" id="nodes" role="group" aria-label="Passages in the evidence map"></div>
+            <noscript><p class="no-js">In this example, Blood Street ranked #1 and linked to Leo Fong at #504. Enable JavaScript to explore the map.</p></noscript>
+          </div>
+          <div class="scene-caption">
+            <span class="map-key" aria-hidden="true"><i></i> Supporting passage</span>
+            <a class="map-hint" href="#evidence">Read selected passage <span aria-hidden="true">↘</span></a>
+          </div>
+        </div>
+
+        <div class="lab-controls">
+          <div class="reach" role="status" aria-atomic="true">
+            <strong id="reach-count">2 / 2</strong>
+            <span>supporting passages in reach</span>
+            <span class="reach-meter" id="reach-meter" aria-hidden="true"></span>
+          </div>
+          <fieldset class="filters">
+            <legend class="sr-only">Link types</legend>
+            <label><input type="checkbox" data-family="S" checked><span class="family-s">Hyperlinks</span></label>
+            <label><input type="checkbox" data-family="R" checked><span class="family-r">Title rules</span></label>
+            <label><input type="checkbox" data-family="N" checked><span class="family-n">Shared names</span></label>
+            <label><input type="checkbox" data-family="K" checked><span class="family-k">Semantic</span></label>
+          </fieldset>
+          <p class="dataset-note" id="dataset-note" hidden>MuSiQue has no corpus hyperlinks.</p>
+        </div>
+      </section>
+
+      <section class="cases" id="cases" aria-labelledby="case-title">
+        <div class="case-heading">
+          <h2 id="case-title">Try another question</h2>
+        </div>
+        <div class="case-list" id="case-list" role="group" aria-label="Example questions"></div>
+      </section>
+    </div>
+
+    <section class="shell evidence" id="evidence" aria-labelledby="evidence-title">
+      <div class="evidence-picker">
+        <h2 id="evidence-title">Inspect the evidence</h2>
+        <p>Read the supporting passages and see how each one was reached.</p>
+        <div class="support-list" id="support-list" role="group" aria-label="Supporting passages"></div>
+      </div>
+      <article class="passage" id="passage" aria-labelledby="passage-title" aria-live="polite">
+        <div class="passage-meta">
+          <span id="passage-kind">Supporting passage</span>
+          <span id="passage-rank">First search #504</span>
+        </div>
+        <h3 id="passage-title">Leo Fong</h3>
+        <p class="passage-text" id="passage-text"></p>
+        <p class="passage-path" id="passage-path"></p>
+        <a class="text-link" id="passage-source" href="https://en.wikipedia.org/wiki/Leo_Fong">Wikipedia source <span aria-hidden="true">↗</span></a>
+      </article>
+    </section>
+
+    <section class="shell method" id="method" aria-labelledby="method-title">
+      <h2 id="method-title">How it works</h2>
+      <div class="method-grid">
+        <article>
+          <h3>Start with five</h3>
+          <p>The first search combines rankings by words and by meaning. Its first five passages are the starting points.</p>
+        </article>
+        <article>
+          <h3>Follow one link</h3>
+          <p>A passage comes into reach when it connects directly to a starting point through an enabled link type.</p>
+        </article>
+        <article>
+          <h3>Check the evidence</h3>
+          <p>Each benchmark marks the passages that support the answer. The map counts how many of those passages are in reach.</p>
+        </article>
+      </div>
+      <details class="method-details">
+        <summary>Data and link definitions</summary>
+        <p>The playground uses six selected development questions from <a href="https://aclanthology.org/2020.coling-main.580/">2WikiMultihopQA</a>, <a href="https://hotpotqa.github.io/">HotpotQA</a>, and <a href="https://aclanthology.org/2022.tacl-1.31/">MuSiQue</a>. It replays recorded first-search ranks and links between the passages shown. Positions on the map are schematic. The original search ranks stay fixed when you toggle links.</p>
+        <dl>
+          <div><dt>Hyperlinks</dt><dd>Article links supplied by the benchmark corpus.</dd></div>
+          <div><dt>Title rules</dt><dd>Passages that mention another passage’s title or come from the same article.</dd></div>
+          <div><dt>Shared names</dt><dd>Passages with a named entity in common.</dd></div>
+          <div><dt>Semantic</dt><dd>Links to the nearest passages by meaning.</dd></div>
+        </dl>
+        <p>Passage excerpts are by Wikipedia contributors, as distributed in the benchmark datasets, under <a href="https://creativecommons.org/licenses/by-sa/4.0/">CC BY-SA 4.0</a>.</p>
+      </details>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="shell footer-inner"><span>Second Hop</span><a href="#top">Back to top <span aria-hidden="true">↑</span></a></div>
+  </footer>
+</body>
+</html>
