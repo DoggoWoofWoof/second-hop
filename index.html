@@ -14,10 +14,12 @@
   <link rel="preload" href="assets/instrument-serif-italic.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="assets/site.css">
   <link rel="stylesheet" href="assets/experiments.css">
+  <link rel="stylesheet" href="assets/links.css">
   <script defer src="assets/examples.js"></script>
   <script defer src="assets/pipeline-data.js"></script>
-  <script defer src="assets/experiments.js"></script>
-  <script defer src="assets/app.js?v=2"></script>
+  <script defer src="assets/links.js"></script>
+  <script defer src="assets/experiments.js?v=3"></script>
+  <script defer src="assets/app.js?v=3"></script>
 </head>
 <body id="top">
   <a class="skip-link" href="#main">Skip to content</a>
@@ -32,7 +34,8 @@
         <span>Second Hop</span>
       </a>
       <nav class="site-nav" aria-label="Main navigation">
-        <a href="#lab">Map</a>
+        <a class="nav-map" href="#lab">Map</a>
+        <a href="#links">Links</a>
         <a href="#pool">Pool</a>
         <a href="#rankers">Rankers</a>
         <a href="#latency">Results</a>
@@ -94,7 +97,10 @@
             <label><input type="checkbox" data-family="K" checked><span class="family-k">Semantic</span></label>
           </fieldset>
           <p class="dataset-note" id="dataset-note" hidden>MuSiQue has no corpus hyperlinks.</p>
-          <p class="map-route" id="map-route" aria-live="polite"></p>
+          <div class="map-route-bar">
+            <p class="map-route" id="map-route" aria-live="polite"></p>
+            <a href="#links" class="section-link">Compare link types <span aria-hidden="true">↓</span></a>
+          </div>
         </div>
       </section>
 
@@ -138,11 +144,51 @@
     <section class="shell chapter" id="pool" aria-labelledby="pool-title">
       <header class="chapter-head">
         <div><h2 id="pool-title">Shrink the candidate pool</h2>
-          <p>Start with a small search budget. Open up the links and see which passages enter the shortlist.</p></div>
+          <p>Compare the links between passages, then change the search budget to see what enters the shortlist.</p></div>
         <a class="case-link" href="#cases"><span id="pool-case">Blood Street</span> <span aria-hidden="true">↗</span><span class="sr-only">. Change question.</span></a>
       </header>
       <div class="workbench pool-bench">
-        <div class="work-controls">
+        <section class="link-workbench" id="links" aria-labelledby="links-title">
+          <div class="link-heading">
+            <h3 id="links-title">See how the links differ</h3>
+            <div class="link-heading-actions">
+              <a class="section-link" id="wire-example" href="?case=blood-street#links">See all four on one pair <span aria-hidden="true">↗</span></a>
+              <a class="section-link" href="#shortlist">Pool replay <span aria-hidden="true">↓</span></a>
+            </div>
+          </div>
+          <div class="link-bench-grid">
+            <div id="wire-types" class="wire-types" role="group" aria-label="Link types in this question"></div>
+            <div class="wire-card">
+              <div class="wire-route" id="wire-route">
+                <div class="wire-controls">
+                  <label for="wire-pair">Connection</label>
+                  <select id="wire-pair"></select>
+                </div>
+                <div class="wire-diagram">
+                  <a class="wire-node" id="wire-from" href="#evidence"><strong></strong><small></small></a>
+                  <div class="wire-tracks" id="wire-tracks" role="group" aria-label="Link types connecting these passages"></div>
+                  <a class="wire-node" id="wire-to" href="#evidence"><strong></strong><small></small></a>
+                </div>
+                <div class="wire-actions">
+                  <button class="ghost-button" type="button" id="wire-replay">Replay link <span aria-hidden="true">↻</span></button>
+                  <span class="lab-note" id="wire-path-count"></span>
+                </div>
+              </div>
+              <div id="wire-empty" class="wire-empty" hidden>
+                <strong id="wire-empty-title"></strong>
+                <p id="wire-empty-note"></p>
+                <a class="section-link" href="?case=blood-street#links">Compare all four in Blood Street <span aria-hidden="true">↗</span></a>
+              </div>
+            </div>
+            <div class="wire-proof" id="wire-proof" aria-live="polite">
+              <h4 id="wire-proof-title"></h4>
+              <p id="wire-how"></p>
+              <div id="wire-evidence"></div>
+              <button type="button" class="ghost-button" id="wire-toggle"></button>
+            </div>
+          </div>
+        </section>
+        <div class="work-controls" id="shortlist">
           <fieldset>
             <legend>First-search budget</legend>
             <div class="view-tabs" id="pool-depth">

@@ -27,12 +27,7 @@
   };
   const byId = id => document.getElementById(id);
   const number = new Intl.NumberFormat("en-US");
-  const articlePaths = new Map([
-    ["The Newcomers (film)", "The_Newcomers#Film"],
-    ["The Newcomer in The Cabbage", "Vaniusha_The_Newcomer"],
-  ]);
-  const articleURL = title => `https://en.wikipedia.org/wiki/${articlePaths.get(title) ?? encodeURIComponent(title.replaceAll(" ", "_"))}`;
-  window.SECOND_HOP_ARTICLE_URL = articleURL;
+  const { articleURL } = window.SECOND_HOP_LINKS;
   const motion = window.matchMedia("(prefers-reduced-motion: reduce)");
   const depthControls = [...document.querySelectorAll("[data-depth]")];
   const recipeControls = [...document.querySelectorAll("[data-recipe]")];
