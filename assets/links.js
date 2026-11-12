@@ -37,7 +37,7 @@
     return quote;
   }
 
-  function describeLink(sample, origin, target, family, cosine) {
+  function describeLink(sample, origin, target, family, cosine, exactNames) {
     const details = window.SECOND_HOP_PIPELINE[sample.id].linkDetails[edgeKey(origin.id, target.id)];
     if (family === "K") {
       const similarity = cosine ?? details?.cosine;
@@ -45,7 +45,7 @@
         : `Recorded cosine similarity between these two passages is ${similarity.toFixed(3)}.` };
     }
     if (family === "N") {
-      const names = details?.names ?? [];
+      const names = exactNames ?? details?.names ?? [];
       return {
         explanation: names.length ? `The tagger found ${formatList.format(names.map(name => `“${name}”`))} in both passages.`
           : "The benchmark graph records a shared named entity between these passages.",
@@ -64,7 +64,7 @@
     return { explanation: "The title-rule graph links these passages using normalized article titles." };
   }
 
-  window.SECOND_HOP_LINKS = { families, articleURL };
+  window.SECOND_HOP_LINKS = { families, articleURL, describeLink };
 
   const byId = id => document.getElementById(id);
   const typeList = byId("wire-types");
@@ -75,10 +75,12 @@
   let sample;
   let pairs = [];
   let counts = {};
-  let previousBudget;
+  let previousSeeds;
+  let passageNames;
   let enabled = [];
   let family = "S";
   let selectedKey;
+  let optionsFor;
   let replayFrame = 0;
 
   function el(tag, className, text) {
@@ -133,6 +135,7 @@
       count.textContent = `${total.toLocaleString("en-US")} links · ${enabled.includes(type) ? "On" : "Off"}`;
     }
     const included = enabled.includes(family);
+    byId("wire-locate").disabled = !included;
     toggle.hidden = family === "S" && sample.dataset === "MuSiQue";
     toggle.textContent = included ? `Remove ${families[family].title.toLowerCase()} from pool` : `Add ${families[family].title.toLowerCase()} to pool`;
     updateTracks();
@@ -202,11 +205,11 @@
       return;
     }
     const { from, to } = pair;
-    const { explanation, quote } = describeLink(sample, from, to, family, pair.cosine);
+    const { explanation, quote } = describeLink(sample, from, to, family, pair.cosine, passageNames?.[pair.key]);
     const references = el("div", "wire-references");
     for (const node of from.title === to.title ? [from] : [from, to]) {
       const link = el("a", "wire-source", `${node.title} ↗`);
-      link.href = articleURL(node.title, Boolean(node.text));
+      link.href = articleURL(node.title);
       link.target = "_blank";
       link.rel = "noopener";
       references.append(link);
@@ -230,13 +233,14 @@
       return;
     }
     selectedKey = pair.key;
-    const options = available.slice(0, 18);
-    if (!options.includes(pair)) options.push(pair);
-    pairControl.replaceChildren(...options.map(item => {
-      const option = el("option", "", `${item.from.title} → ${item.to.title}`);
-      option.value = item.key;
-      return option;
-    }));
+    if (optionsFor !== family) {
+      pairControl.replaceChildren(...available.map(item => {
+        const option = el("option", "", `${item.from.title} → ${item.to.title}`);
+        option.value = item.key;
+        return option;
+      }));
+      optionsFor = family;
+    }
     pairControl.value = pair.key;
     showNode("wire-from", pair.from);
     showNode("wire-to", pair.to);
@@ -255,11 +259,22 @@
     render(true);
   });
   byId("wire-replay").addEventListener("click", replay);
+  byId("wire-locate").addEventListener("click", () => {
+    const route = pairs.find(pair => pair.key === selectedKey);
+    if (route?.active.includes(family)) {
+      document.dispatchEvent(new CustomEvent("secondhop:locate", { detail: { route, family } }));
+    }
+  });
   document.addEventListener("secondhop:replay-link", replay);
   document.addEventListener("secondhop:route", ({ detail }) => {
     if (!detail) return;
     selectedKey = detail.key;
-    selectType(detail.active[0]);
+    selectType(detail.family ?? detail.active[0] ?? detail.types[0]);
+  });
+  document.addEventListener("secondhop:passages", ({ detail }) => {
+    if (detail.sample !== sample) return;
+    passageNames = detail.names;
+    showProof(pairs.find(pair => pair.key === selectedKey && pair.types.includes(family)));
   });
   for (const id of ["wire-from", "wire-to"]) {
     byId(id).addEventListener("click", event => {
@@ -274,13 +289,17 @@
   document.addEventListener("secondhop:state", ({ detail }) => {
     enabled = detail.families;
     const changedCase = sample !== detail.sample;
-    const budget = detail.result.seeds.length;
-    if (!changedCase && budget === previousBudget) {
+    const seedIds = detail.result.seeds.map(node => node.id).join(",");
+    if (!changedCase && seedIds === previousSeeds) {
+      const activeRoutes = new Map(detail.result.routes.map(route => [route.key, route]));
+      pairs = pairs.map(pair => activeRoutes.get(pair.key));
       updatePoolControls();
       return;
     }
-    previousBudget = budget;
+    previousSeeds = seedIds;
     sample = detail.sample;
+    passageNames = detail.names;
+    optionsFor = undefined;
     pairs = [...detail.result.routes].sort(comparePair);
     counts = Object.fromEntries(keys.map(type => [type, pairs.filter(pair => pair.types.includes(type)).length]));
     byId("wire-example").hidden = sample.id === "blood-street";

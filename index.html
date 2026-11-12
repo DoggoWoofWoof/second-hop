@@ -14,20 +14,21 @@
   <link rel="preload" href="assets/instrument-serif-italic.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="assets/site.css">
   <link rel="stylesheet" href="assets/experiments.css?v=4">
-  <link rel="stylesheet" href="assets/links.css?v=5">
-  <link rel="stylesheet" href="assets/flow.css?v=3">
+  <link rel="stylesheet" href="assets/links.css?v=6">
+  <link rel="stylesheet" href="assets/flow.css?v=4">
   <script defer src="assets/examples.js"></script>
   <script defer src="assets/pipeline-data.js"></script>
-  <script defer src="assets/retrieval.js"></script>
-  <script defer src="assets/links.js?v=4"></script>
+  <script defer src="assets/retrieval.js?v=2"></script>
+  <script defer src="assets/links.js?v=5"></script>
+  <script defer src="assets/scene.js?v=2"></script>
   <script defer src="assets/experiments.js?v=4"></script>
-  <script defer src="assets/app.js?v=6"></script>
+  <script defer src="assets/app.js?v=7"></script>
 </head>
 <body id="top">
   <a class="skip-link" href="#main">Skip to content</a>
   <header class="site-header">
     <div class="shell header-inner">
-      <a class="brand" href="#corpus" aria-label="Second Hop home">
+      <a class="brand" href="#top" aria-label="Second Hop home">
         <svg viewBox="0 0 32 32" aria-hidden="true" focusable="false">
           <rect x=".5" y=".5" width="31" height="31" rx="8" fill="none" stroke="currentColor" opacity=".25"/>
           <path d="M8 23Q15 8 24 9" fill="none" stroke="currentColor" stroke-width="1.5"/>
@@ -50,31 +51,28 @@
         <p class="overline"><span class="signal" aria-hidden="true"></span> Multi-hop retrieval playground</p>
         <h1>From corpus to <em>evidence.</em></h1>
       </div>
-      <p>Follow a question from the first search to the final five passages.</p>
+      <p>Explore what happens between a search and the five passages it returns.</p>
     </header>
 
     <div class="flow-workbench" id="pipeline" aria-label="Interactive retrieval pipeline">
+      <div class="flow-console">
       <div class="flow-query" id="cases">
         <div>
           <span class="dataset" id="flow-dataset">2WikiMultihopQA</span>
           <p id="flow-question">What nationality is the director of film Blood Street?</p>
         </div>
-        <label for="flow-case">Question<select id="flow-case"></select></label>
+        <div class="flow-selectors">
+          <label for="flow-dataset-select">Dataset<select id="flow-dataset-select"></select></label>
+          <label for="flow-case">Question<select id="flow-case"></select></label>
+        </div>
       </div>
 
       <div class="flow-navigation">
-        <nav class="flow-steps" aria-label="Pipeline stages">
-          <button type="button" data-stage="corpus" aria-controls="corpus" aria-current="step"><span>Corpus</span><strong id="step-corpus">—</strong><small>passages</small></button>
-          <button type="button" data-stage="lab" aria-controls="lab"><span>Search</span><strong id="step-search">—</strong><small>initial hits</small></button>
-          <button type="button" data-stage="links" aria-controls="links"><span>Links</span><strong id="step-links">—</strong><small>added</small></button>
-          <button type="button" data-stage="pool" aria-controls="pool"><span>Pool</span><strong id="step-pool">—</strong><small>candidates</small></button>
-          <button type="button" data-stage="rankers" aria-controls="rankers"><span>Top five</span><strong id="step-results">—</strong><small>supporting</small></button>
-        </nav>
         <div class="flow-actions">
           <div class="flow-step-actions">
             <button type="button" class="ghost-button flow-back" id="flow-back" aria-label="Previous stage">←</button>
-            <button type="button" class="ghost-button" id="flow-play">Play pipeline ▷</button>
-            <button type="button" class="ghost-button flow-next" id="flow-next">Next <span aria-hidden="true">→</span></button>
+            <button type="button" class="ghost-button" id="flow-play">Play pipeline</button>
+            <button type="button" class="ghost-button flow-next" id="flow-next" aria-label="Next stage">→</button>
           </div>
           <button type="button" class="ghost-button flow-tune" id="flow-tune" aria-expanded="false" aria-controls="flow-settings">Settings <span aria-hidden="true">⌄</span></button>
         </div>
@@ -88,42 +86,70 @@
           </fieldset>
           <label for="flow-boost">Link boost <output id="flow-boost-value" for="flow-boost">1×</output><input id="flow-boost" type="range" min="0" max="2" step="0.5" value="1"></label>
         </div>
+        <div class="flow-timeline">
+          <label class="sr-only" for="flow-scrub">Pipeline timeline</label>
+          <input id="flow-scrub" type="range" min="0" max="4" step="0.01" value="0" aria-controls="flow-visual" disabled>
+          <nav class="flow-steps" aria-label="Pipeline stages">
+            <button type="button" data-stage="corpus" aria-controls="corpus" aria-current="step"><span>Corpus</span><strong id="step-corpus">—</strong></button>
+            <button type="button" data-stage="lab" aria-controls="lab"><span>Search</span><strong id="step-search">—</strong></button>
+            <button type="button" data-stage="links" aria-controls="links"><span>Links</span><strong id="step-links">—</strong></button>
+            <button type="button" data-stage="pool" aria-controls="pool"><span>Shortlist</span><strong id="step-pool">—</strong></button>
+            <button type="button" data-stage="rankers" aria-controls="rankers"><span>Top five</span><strong id="step-results">—</strong></button>
+          </nav>
+        </div>
+      </div>
       </div>
 
       <p class="sr-only" id="flow-stage-status" aria-live="polite"></p>
-      <div class="flow-surface" id="flow-surface" tabindex="0" aria-label="Stage details" aria-busy="true">
+      <div class="flow-surface" id="flow-surface" aria-busy="true">
         <div class="flow-loading" id="flow-loading" role="status">Loading the walkthrough…</div>
         <div class="flow-loading" id="flow-error" hidden>
           <p>The passages for this question couldn’t load.</p><button type="button" class="ghost-button" id="flow-retry">Try again</button>
         </div>
 
-        <section class="flow-panel" id="corpus" data-flow-panel aria-labelledby="corpus-title" hidden>
-          <div class="corpus-layout">
-            <div class="corpus-copy">
-              <h2 id="corpus-title">The search space</h2>
-              <strong id="corpus-total"></strong>
-              <p id="corpus-detail"></p>
-              <p class="lab-note">The dots represent the size of the benchmark snapshot.</p>
+        <figure class="flow-visual" id="flow-visual" hidden>
+          <figcaption class="visual-head">
+            <h2 id="scene-title">The search space</h2>
+            <span id="scene-count" class="scene-count"></span>
+          </figcaption>
+          <div class="visual-field" id="scene-field" tabindex="0" role="group" aria-label="Passage graph" aria-describedby="scene-keys">
+            <canvas id="pipeline-canvas" aria-hidden="true"></canvas>
+            <p class="sr-only" id="scene-keys">Use arrow keys to pan the graph, and plus or minus to zoom. Use the lists below to inspect passages and connections.</p>
+            <div class="scene-tools" role="group" aria-label="Graph controls">
+              <button type="button" id="scene-pan" aria-pressed="false" title="Enable touch dragging">Drag</button>
+              <button type="button" id="scene-minus" aria-label="Zoom out" title="Zoom out">−</button>
+              <button type="button" id="scene-plus" aria-label="Zoom in" title="Zoom in">+</button>
+              <button type="button" id="scene-reset" title="Reset zoom and node positions">Fit</button>
             </div>
-            <canvas id="corpus-field" class="corpus-field" aria-hidden="true"></canvas>
           </div>
+          <div class="visual-footer">
+            <p id="scene-note"></p>
+            <div class="scene-legend" id="scene-legend" aria-label="Graph legend"></div>
+          </div>
+        </figure>
+
+        <section class="flow-panel" id="corpus" data-flow-panel aria-label="Benchmark snapshot" hidden>
+          <p class="flow-description" id="corpus-detail"></p>
         </section>
 
         <section class="flow-panel" id="lab" data-flow-panel aria-labelledby="search-title" hidden>
-          <div class="flow-panel-head"><div><h2 id="search-title">First search</h2><p class="flow-description" id="search-summary"></p></div>
+          <div class="flow-panel-head"><div><h2 id="search-title">Starting passages</h2><p class="flow-description" id="search-summary"></p></div>
             <a class="section-link" href="https://doi.org/10.1145/1571941.1572114">How rank fusion works ↗</a></div>
           <ol class="flow-rows" id="search-rows"></ol>
+          <div class="search-actions">
+            <button type="button" class="ghost-button" id="search-all" aria-expanded="false" hidden></button>
+            <button type="button" class="ghost-button" id="search-reset" hidden>Restore all seeds</button>
+          </div>
         </section>
 
-        <section class="link-workbench flow-panel" id="links" data-flow-panel aria-labelledby="links-title" hidden>
-          <div class="link-heading">
-            <h3 id="links-title">Follow a link</h3>
+        <section class="flow-panel" id="links" data-flow-panel aria-labelledby="links-title" hidden>
+          <div class="flow-panel-head">
+            <div><h2 id="links-title">Inspect a connection</h2><p class="flow-description" id="link-stage-summary"></p></div>
             <div class="link-heading-actions">
               <a class="section-link" id="wire-example" href="?case=blood-street#links">See all four on one pair <span aria-hidden="true">↗</span></a>
               <a class="section-link" href="#shortlist">See the shortlist <span aria-hidden="true">→</span></a>
             </div>
           </div>
-          <p class="flow-description" id="link-stage-summary"></p>
           <div class="link-bench-grid">
             <div id="wire-types" class="wire-types" role="group" aria-label="Link types from the current search hits"></div>
             <div class="wire-card">
@@ -139,6 +165,7 @@
                 </div>
                 <div class="wire-actions">
                   <button class="ghost-button" type="button" id="wire-replay">Replay link <span aria-hidden="true">↻</span></button>
+                  <button class="ghost-button" type="button" id="wire-locate">Show on graph ↑</button>
                   <span class="lab-note" id="wire-path-count"></span>
                 </div>
               </div>
@@ -158,7 +185,7 @@
         </section>
 
         <section class="flow-panel" id="pool" data-flow-panel aria-labelledby="shortlist" hidden>
-          <div class="flow-panel-head"><div><h2 id="shortlist">Build the shortlist</h2><p class="flow-description" id="pool-summary"></p></div></div>
+          <div class="flow-panel-head"><div><h2 id="shortlist">Shortlist breakdown</h2><p class="flow-description" id="pool-summary"></p></div></div>
           <div class="shortlist-layout">
             <div>
               <div class="pool-scale">
@@ -173,7 +200,7 @@
         </section>
 
         <section class="flow-panel" id="rankers" data-flow-panel aria-labelledby="finish-title" hidden>
-          <div class="flow-panel-head"><div><h2 id="finish-title">Final top five</h2><p class="flow-description" id="finish-summary"></p></div>
+          <div class="flow-panel-head"><div><h2 id="finish-title">Inspect the results</h2><p class="flow-description" id="finish-summary"></p></div>
             <div class="view-tabs flow-rank-tabs" role="group" aria-label="Compare ranking methods">
               <button type="button" id="finish-base" aria-pressed="false">Fused score</button><button type="button" id="finish-boosted" aria-pressed="true">With link boost</button>
             </div></div>
@@ -188,7 +215,7 @@
   <dialog class="flow-dialog evidence-dialog" id="evidence" aria-labelledby="passage-title">
     <div class="dialog-head"><p class="overline" id="passage-kind">Passage</p><button type="button" class="ghost-button" id="evidence-close">Close <span aria-hidden="true">×</span></button></div>
     <h2 id="passage-title"></h2>
-    <p class="passage-text" id="passage-text"></p>
+    <p class="passage-text" id="passage-text" aria-live="polite"></p>
     <dl class="signal-strip" aria-label="First search ranks">
       <div><dt>Words</dt><dd id="signal-words">—</dd></div>
       <div><dt>Meaning</dt><dd id="signal-meaning">—</dd></div>
@@ -196,7 +223,11 @@
     </dl>
     <p class="passage-path" id="passage-path"></p>
     <p class="lab-note" id="passage-score"></p>
-    <div class="dialog-actions"><a class="section-link" id="passage-source" href="https://en.wikipedia.org/" target="_blank" rel="noopener">Wikipedia reference ↗</a>
+    <label class="passage-route-label" id="passage-route-label" for="passage-route" hidden>Connections<select id="passage-route"></select></label>
+    <div class="passage-links" id="passage-links"></div>
+    <div class="dialog-actions"><a class="section-link" id="passage-source" href="https://en.wikipedia.org/" target="_blank" rel="noopener">Wikipedia article ↗</a>
+      <a class="section-link" href="assets/passages/sources.txt" target="_blank" rel="noopener">Passage credits ↗</a>
+      <button type="button" class="ghost-button" id="passage-seed" hidden></button>
       <button type="button" class="ghost-button" id="passage-trace" hidden>Trace this connection →</button></div>
   </dialog>
 
@@ -269,7 +300,7 @@
       <h2 id="method-title">Data and methods</h2>
       <div class="method-grid">
         <article><h3>First search</h3><p>Dense and sparse retrievers order the passages by meaning and words. <a href="https://doi.org/10.1145/1571941.1572114">Reciprocal rank fusion</a> combines those orders.</p></article>
-        <article><h3>Pool replay</h3><p>Each selected search hit contributes its direct neighbours from the enabled link types. Duplicate passages count once. The link diagram shows selected connections from the current search hits.</p></article>
+        <article><h3>Pool replay</h3><p>Each selected search hit contributes its direct neighbours from the enabled link types. Duplicate passages count once. The graph shows the current seeds, their neighbours, and the connections between them.</p></article>
         <article><h3>Ranking replay</h3><p>The demo adds a bonus to each neighbour based on its best connected search hit. The bonus equals that hit’s fused score times the number of enabled link types on the connection, divided by four, times the chosen boost. The saved MLP and GNN runs used a fixed shortlist and seed 0.</p></article>
       </div>
       <div class="scale-band">
@@ -286,7 +317,7 @@
           <div><dt>Shared names</dt><dd>Passages with a named entity in common.</dd></div>
           <div><dt>Semantic</dt><dd>Links to the nearest passages by meaning.</dd></div>
         </dl>
-        <p>Passage excerpts are by Wikipedia contributors, as distributed in the benchmark datasets, under <a href="https://creativecommons.org/licenses/by-sa/4.0/">CC BY-SA 4.0</a>.</p>
+        <p>The passage text comes from the saved benchmark snapshots. <a href="assets/passages/sources.txt">Passage sources and credits</a>.</p>
       </details>
     </section>
     </div>

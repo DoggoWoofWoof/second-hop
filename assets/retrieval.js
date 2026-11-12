@@ -24,9 +24,10 @@
     };
   }
 
-  function run(trace, budget, enabled, boost) {
+  function run(trace, budget, enabled, boost, excluded = new Set()) {
     const mask = familyMask(enabled);
-    const seeds = trace.seeds.slice(0, budget);
+    const hits = trace.seeds.slice(0, budget);
+    const seeds = hits.filter(node => !excluded.has(node.id));
     const seedIds = new Set(seeds.map(node => node.id));
     const routes = [];
     const origins = new Map();
@@ -55,7 +56,7 @@
     const base = rows.slice(0, 5);
     rows.sort((a, b) => b.total - a.total || b.node.score - a.node.score || a.node.id - b.node.id);
     return {
-      seeds, seedIds, routes, origins, base, boosted: rows.slice(0, 5),
+      hits, seeds, seedIds, routes, origins, base, boosted: rows.slice(0, 5),
       size: rows.length,
       support: trace.support.filter(node => seedIds.has(node.id) || origins.has(node.id)).length,
     };

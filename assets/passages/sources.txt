@@ -1,0 +1,24 @@
+Second Hop shows benchmark passages collected from English Wikipedia. The
+article link beside each passage identifies its source and provides access to
+its contributor history. The passages preserve the text of the saved benchmark
+snapshot, which may differ from today's article. Wikipedia text is available
+under Creative Commons Attribution-ShareAlike.
+https://en.wikipedia.org/wiki/Wikipedia:Copyrights
+
+Benchmark sources and licenses
+
+2WikiMultihopQA — Xanh Ho, Anh-Khoa Duong Nguyen, Saku Sugawara and Akiko Aizawa.
+https://github.com/Alab-NII/2wikimultihop
+https://github.com/Alab-NII/2wikimultihop/blob/main/LICENSE
+
+HotpotQA — Zhilin Yang, Peng Qi, Saizheng Zhang, Yoshua Bengio, William Cohen,
+Ruslan Salakhutdinov and Christopher D. Manning.
+https://hotpotqa.github.io/
+https://creativecommons.org/licenses/by-sa/4.0/
+
+MuSiQue — Harsh Trivedi, Niranjan Balasubramanian, Tushar Khot and Ashish Sabharwal.
+https://github.com/StonyBrookNLP/musique
+https://github.com/StonyBrookNLP/musique/blob/main/LICENSE
+
+Each JSON file selects the passages reachable in one Second Hop example and
+adds the matching names verified against the recorded named-entity link weights.

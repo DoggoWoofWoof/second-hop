@@ -6,7 +6,7 @@
 .link-heading-actions { display: flex; flex-wrap: wrap; gap: 0 12px; }
 .link-heading h3 { font: 650 clamp(1.25rem, 2.2vw, 1.85rem)/1.1 var(--heading); letter-spacing: -.025em; }
 .link-heading .section-link { min-height: 35px; }
-.link-bench-grid { display: grid; grid-template-columns: minmax(144px, .58fr) minmax(270px, 1.48fr) minmax(205px, .93fr); gap: 10px; }
+.link-bench-grid { display: grid; grid-template-columns: minmax(144px, .58fr) minmax(270px, 1.48fr) minmax(205px, .93fr); gap: 14px; }
 .wire-types { display: grid; grid-template-rows: repeat(4, minmax(49px, 1fr)); gap: 5px; }
 .wire-type {
   display: grid;
@@ -25,7 +25,7 @@
 .wire-type:hover, .wire-type[aria-pressed="true"] { border-color: var(--wire); }
 .wire-type[aria-pressed="true"] { background: color-mix(in srgb, var(--wire) 9%, #1b1527); }
 .wire-type strong { font: 650 .91rem/1.15 var(--heading); }
-.wire-type small { grid-column: 2; color: var(--muted); font-size: .65rem; line-height: 1.25; }
+.wire-type small { grid-column: 2; color: var(--muted); font-size: .72rem; line-height: 1.25; }
 .wire-type-count { grid-column: 2; color: var(--wire); font: 500 .62rem/1.3 var(--mono); }
 .wire-swatch { grid-row: 1 / -1; align-self: center; }
 .wire-swatch svg { display: block; width: 100%; height: 14px; stroke-width: 2; }
@@ -84,7 +84,7 @@
 
 .wire-proof { display: flex; flex-direction: column; align-items: flex-start; padding: 11px clamp(10px, 1.2vw, 15px); background: #1c1727; }
 .wire-proof h4 { margin: 0 0 4px; color: var(--wire); font: 650 1.1rem/1.15 var(--heading); }
-.wire-proof p { color: var(--muted); font-size: .76rem; line-height: 1.45; }
+.wire-proof p { color: var(--muted); font-size: .84rem; line-height: 1.45; }
 .wire-proof .wire-observation { margin-top: 6px; color: var(--text); }
 .wire-proof blockquote { margin: 6px 0; padding: 5px 8px; border-left: 2px solid var(--wire); background: #130f1e; color: var(--muted); font-size: .72rem; line-height: 1.4; }
 .wire-proof mark { padding: 0 2px; border-radius: 2px; background: #62483e; color: #ffe5ba; }
@@ -92,21 +92,16 @@
 .wire-source { display: inline-flex; align-items: center; min-height: 31px; color: var(--gold); font-size: .72rem; text-underline-offset: 3px; }
 .wire-proof .ghost-button { min-height: 34px; margin-top: auto; }
 
-@media (max-width: 930px) {
+@media (max-width: 1150px) {
   .link-bench-grid { grid-template-columns: minmax(0, 1.32fr) minmax(0, 1fr); }
   .wire-types { grid-column: 1 / -1; grid-template-columns: repeat(4, minmax(0, 1fr)); grid-template-rows: auto; }
 }
 
 @media (max-width: 640px) {
   .link-bench-grid { grid-template-columns: minmax(0, 1fr); }
-  .wire-types { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-  .wire-type { grid-template-columns: 1fr; padding: 5px 3px; justify-items: center; text-align: center; }
-  .wire-type strong { font-size: .66rem; }
-  .wire-type :is(small, .wire-type-count) { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
-  .wire-swatch { grid-row: 1; width: 25px; }
-  .wire-swatch svg { height: 6px; }
-  .wire-route { gap: 8px; }
-  .wire-node small { font-size: .59rem; }
+  .wire-types { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .wire-type { padding: 8px 6px; }
+  .wire-route { gap: 10px; }
 }
 
 @media (max-width: 460px) {
