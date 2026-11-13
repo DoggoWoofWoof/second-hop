@@ -15,6 +15,7 @@
   const budget = byId("flow-budget");
   const depth = byId("graph-depth");
   const familyButtons = new Map();
+  const explorerFamilies = Object.keys(families).filter(type => type !== "T");
   const panelButtons = [...document.querySelectorAll("[data-panel]")];
   const steps = ["lab", "ppr", "pool", "features", "models", "rankers"];
   const stepNames = ["Seeds", "PPR", "Pool", "Inputs", "Models", "Top five"];
@@ -27,7 +28,7 @@
   const exclusions = new Map();
   const params = new URLSearchParams(location.search);
   const initial = examples.find(example => example.id === params.get("case")) ?? examples[0];
-  const enabled = new Set(params.has("links") && /^[SRNK]*$/.test(params.get("links")) ? params.get("links") : Object.keys(families));
+  const enabled = new Set(params.has("links") && /^[SRNK]*$/.test(params.get("links")) ? params.get("links") : explorerFamilies);
   if (params.has("skip")) {
     const ids = params.get("skip").split(",").filter(id => /^\d+$/.test(id)).map(Number);
     exclusions.set(initial.id, new Set(ids));
@@ -42,16 +43,22 @@
   let allSeeds = false;
   let allConnections = false;
   let searchMatches = [];
+  let mode = "trained";
+  let trainedIndex;
+  let trainedCase;
+  const archiveRequested = location.hash.slice(1);
   const scene = window.SECOND_HOP_SCENE(byId("pipeline-canvas"), {
-    node: id => { if (!runUI.probeFromGraph(id)) inspectNode(id); },
-    edge: (edge, type) => inspectEdge(edge, type),
+    node: id => { if (mode === "trained") trainedUI.select(id); else if (!runUI.probeFromGraph(id)) inspectNode(id); },
+    edge: (edge, type) => { if (mode === "trained") trainedUI.pickEdge(edge, type); else inspectEdge(edge, type); },
     clear: () => {
+      if (mode === "trained") { trainedUI.clear(); return; }
       if (panel !== "inspect" || !selection) return;
       selection = { id: selection.id, focused: false };
       renderInspector();
     },
   });
   const runUI = window.SECOND_HOP_RUN_UI({ scene, rebuild: updateSettings, togglePool, readPassage: id => inspectNode(id, true), save: writeURL });
+  const trainedUI = window.SECOND_HOP_TRAINED_UI({ scene, save: writeTrainedURL, walkLab: () => switchMode("walk") });
 
   function el(tag, className, text) {
     const item = document.createElement(tag);
@@ -72,16 +79,20 @@
   }
 
   function selectPanel(id, store = true) {
+    if (mode === "trained") return;
     const usesWalk = panel === "ppr" && id === "pool" && runUI.followWalk();
     panel = id;
+    mode = id === "inspect" ? "explore" : "walk";
+    markMode();
     if (id !== "inspect") lastStep = id;
     const step = steps.indexOf(id);
     const inRun = step >= 0;
-    byId("run-tab").setAttribute("aria-pressed", String(inRun));
+    byId("walk-tab").setAttribute("aria-pressed", String(inRun));
+    byId("explore-tab").setAttribute("aria-pressed", String(!inRun));
     byId("run-panel").hidden = !inRun;
-    byId("graph-pipeline").textContent = inRun ? "Inspect passages" : "Run pipeline →";
+    byId("inspect").hidden = inRun;
     byId("run-back").disabled = step <= 0;
-    byId("run-next").disabled = step >= steps.length - 1;
+    byId("run-next").disabled = !inRun || step >= steps.length - 1;
     byId("run-next").textContent = step >= steps.length - 1 ? "Finished" : "Next: " + stepNames[step + 1] + " →";
     for (const control of panelButtons) {
       const active = control.dataset.panel === id;
@@ -104,7 +115,7 @@
     url.searchParams.set("case", sample.id);
     url.searchParams.set("budget", budget.value);
     url.searchParams.set("depth", depth.value);
-    url.searchParams.set("links", Object.keys(families).filter(type => enabled.has(type)).join(""));
+    url.searchParams.set("links", explorerFamilies.filter(type => enabled.has(type)).join(""));
     url.searchParams.delete("boost");
     runUI.writeParams(url.searchParams);
     if (shrunk) url.searchParams.set("pool", "1");
@@ -114,6 +125,92 @@
     else url.searchParams.delete("skip");
     url.hash = panel === "inspect" ? "links" : panel;
     history.replaceState(null, "", url);
+  }
+
+  function writeTrainedURL(id, stage) {
+    const url = new URL(location.href);
+    url.search = "";
+    url.searchParams.set("case", id);
+    url.hash = "run-" + ["corpus", "pool", "inputs", "models", "ranking"][stage];
+    history.replaceState(null, "", url);
+  }
+
+  function fillChoices(items, item) {
+    const datasets = [...new Set(items.map(example => example.dataset))];
+    chooseDataset.replaceChildren(...datasets.map(dataset => new Option(dataset, dataset)));
+    chooseDataset.value = item.dataset;
+    chooseCase.replaceChildren(...items.filter(example => example.dataset === item.dataset).map(example => new Option(
+      example.label + (example.dataset === "MetaQA" ? " · " + example.golds + " answers" : ""), example.id)));
+    chooseCase.value = item.id;
+    byId("flow-question").textContent = item.question;
+  }
+
+  function markMode() {
+    byId("trained-tab").setAttribute("aria-pressed", String(mode === "trained"));
+    byId("explore-tab").setAttribute("aria-pressed", String(mode === "explore"));
+    byId("walk-tab").setAttribute("aria-pressed", String(mode === "walk"));
+    byId("trained-steps").hidden = byId("trained-panel").hidden = mode !== "trained";
+    byId("explorer-panel").hidden = mode === "trained";
+    byId("lab-route").dataset.mode = mode;
+    byId("graph-workspace").dataset.mode = mode;
+  }
+
+  async function openTrained(id, step = 0, store = true) {
+    const sequence = ++loadSequence;
+    byId("pipeline").setAttribute("aria-busy", "true");
+    byId("graph-loading").hidden = false;
+    byId("graph-loading").textContent = "Loading the trained run…";
+    byId("graph-error").hidden = true;
+    byId("graph-workspace").hidden = true;
+    try {
+      trainedIndex ??= await window.SECOND_HOP_TRAINED_DATA.index();
+      if (sequence !== loadSequence) return;
+      trainedCase = trainedIndex.find(item => item.id === id) ?? trainedIndex.find(item => item.id === "yglesias-cast") ?? trainedIndex[0];
+      fillChoices(trainedIndex, trainedCase);
+      const badge = byId("question-tag");
+      badge.hidden = false;
+      badge.textContent = trainedCase.golds + (trainedCase.dataset === "MetaQA" ? " correct answers" : " supporting passages");
+      if (!await trainedUI.open(trainedCase, step) || sequence !== loadSequence) return;
+      byId("graph-workspace").hidden = false;
+      if (store) writeTrainedURL(trainedCase.id, step);
+      const existing = examples.find(item => item.id === trainedCase.id) ?? examples.find(item => item.dataset === trainedCase.dataset) ?? examples[0];
+      document.dispatchEvent(new CustomEvent("secondhop:state", { detail: { sample: existing } }));
+    } catch (error) {
+      if (sequence !== loadSequence) return;
+      byId("graph-error").hidden = false;
+      console.error(error);
+    } finally {
+      if (sequence === loadSequence) {
+        byId("graph-loading").hidden = true;
+        byId("pipeline").setAttribute("aria-busy", "false");
+      }
+    }
+  }
+
+  function switchMode(next, id, step = 0, store = true) {
+    if (mode === "trained" && next !== "trained") trainedUI.close();
+    const old = mode;
+    mode = next;
+    markMode();
+    if (mode === "trained") {
+      runUI.display("inspect", null);
+      return openTrained(id ?? trainedCase?.id ?? sample?.id, step, store);
+    }
+    byId("question-tag").hidden = true;
+    byId("graph-unit").textContent = "Passages";
+    byId("graph-loading").textContent = "Loading the passage graph…";
+    byId("graph-families").setAttribute("aria-label", "Toggle link types");
+    byId("graph-families").replaceChildren(...[...familyButtons.values()].map(item => item.control));
+    const desired = examples.find(item => item.id === (id ?? trainedCase?.id ?? sample?.id))
+      ?? examples.find(item => item.dataset === (old === "trained" ? trainedCase?.dataset : sample?.dataset)) ?? examples[0];
+    fillChoices(examples, desired);
+    const target = mode === "walk" ? (steps.includes(step) ? step : lastStep === "lab" ? "ppr" : lastStep) : "inspect";
+    if (old !== "trained" && sample?.id === desired.id && graph) {
+      selectPanel(target, store);
+      return Promise.resolve();
+    }
+    panel = target;
+    return load(desired.id, store);
   }
 
   async function json(path) {
@@ -143,11 +240,7 @@
     sample = examples.find(example => example.id === id) ?? examples[0];
     const example = sample;
     chooseDataset.value = example.dataset;
-    if (previous?.dataset !== example.dataset) {
-      chooseCase.replaceChildren(...examples.filter(item => item.dataset === example.dataset).map(item => new Option(item.label, item.id)));
-    }
-    chooseCase.value = example.id;
-    byId("flow-question").textContent = example.question;
+    fillChoices(examples, example);
     if (!exclusions.has(example.id)) exclusions.set(example.id, new Set());
     if (previous && previous !== example) shrunk = false;
     trace = result = graph = planned = selection = undefined;
@@ -494,6 +587,18 @@
   function openHash() {
     const hash = location.hash.slice(1);
     if (archivePanes.some(pane => pane.id === hash)) openArchive(hash);
+    const trainedStep = ["run-corpus", "run-pool", "run-inputs", "run-models", "run-ranking"].indexOf(hash);
+    if (trainedStep >= 0) {
+      const id = new URLSearchParams(location.search).get("case");
+      if (mode === "trained" && trainedCase?.id === id) trainedUI.go(trainedStep, false);
+      else switchMode("trained", id, trainedStep, false);
+      return;
+    }
+    if (mode === "trained" && (steps.includes(hash) || hash === "links" || hash === "shortlist")) {
+      if (steps.includes(hash)) lastStep = hash;
+      switchMode(steps.includes(hash) ? "walk" : "explore", trainedCase?.id, hash, false);
+      return;
+    }
     if (!trace) return;
     if (["top", "corpus", "shortlist", "links"].includes(hash)) {
       shrunk = hash === "shortlist" || (hash === "links" && new URLSearchParams(location.search).get("pool") === "1");
@@ -504,8 +609,8 @@
 
   if (budgets.includes(Number(params.get("budget")))) budget.value = params.get("budget");
   if ([25, 100, 200].includes(Number(params.get("depth")))) depth.value = params.get("depth");
-  for (const dataset of new Set(examples.map(example => example.dataset))) chooseDataset.add(new Option(dataset, dataset));
-  for (const [type, info] of Object.entries(families)) {
+  for (const type of explorerFamilies) {
+    const info = families[type];
     const control = button("galaxy-family", undefined, () => {
       if (enabled.has(type)) enabled.delete(type);
       else enabled.add(type);
@@ -519,20 +624,36 @@
     byId("graph-families").append(control);
   }
 
-  chooseDataset.addEventListener("change", () => load(examples.find(example => example.dataset === chooseDataset.value).id));
-  chooseCase.addEventListener("change", () => load(chooseCase.value));
-  byId("graph-retry").addEventListener("click", () => load(chooseCase.value));
+  chooseDataset.addEventListener("change", () => {
+    const entries = mode === "trained" ? trainedIndex : examples;
+    const item = entries?.find(example => example.dataset === chooseDataset.value);
+    if (item) {
+      if (mode === "trained") openTrained(item.id);
+      else {
+        trainedCase = trainedIndex?.find(example => example.id === item.id);
+        load(item.id);
+      }
+    }
+  });
+  chooseCase.addEventListener("change", () => {
+    if (mode === "trained") openTrained(chooseCase.value);
+    else {
+      trainedCase = trainedIndex?.find(example => example.id === chooseCase.value);
+      load(chooseCase.value);
+    }
+  });
+  byId("graph-retry").addEventListener("click", () => {
+    if (mode === "trained") openTrained(chooseCase.value || params.get("case"));
+    else load(chooseCase.value);
+  });
   for (const control of [budget, depth]) control.addEventListener("change", updateSettings);
   panelButtons.forEach(control => control.addEventListener("click", () => selectPanel(control.dataset.panel)));
-  byId("run-tab").addEventListener("click", () => selectPanel(lastStep));
+  for (const [id, next] of [["trained-tab", "trained"], ["explore-tab", "explore"], ["walk-tab", "walk"]]) {
+    byId(id).addEventListener("click", () => { if (mode !== next) switchMode(next); });
+  }
   byId("run-back").addEventListener("click", () => selectPanel(steps[steps.indexOf(panel) - 1]));
   byId("run-next").addEventListener("click", () => selectPanel(steps[steps.indexOf(panel) + 1]));
-  byId("graph-pipeline").addEventListener("click", () => {
-    const opening = panel === "inspect";
-    selectPanel(opening ? lastStep : "inspect");
-    if (opening && matchMedia("(max-width: 860px)").matches) byId("run-tab").scrollIntoView({ block: "center", behavior: motion.matches ? "auto" : "smooth" });
-  });
-  byId("graph-shrink").addEventListener("click", togglePool);
+  byId("graph-shrink").addEventListener("click", () => { if (mode === "trained") trainedUI.togglePool(); else togglePool(); });
   const pauseControl = byId("graph-pause");
   function syncPause() {
     pauseControl.textContent = paused ? "Resume" : "Pause";
@@ -552,7 +673,8 @@
   byId("inspect-more").addEventListener("click", () => { allConnections = !allConnections; renderInspector(); });
   byId("search-all").addEventListener("click", () => { allSeeds = !allSeeds; renderSearch(); });
   byId("search-reset").addEventListener("click", () => { exclusions.get(sample.id).clear(); updateSettings(); });
-  byId("graph-open-passage").addEventListener("click", () => byId("inspect").scrollIntoView({ block: "start", behavior: motion.matches ? "auto" : "smooth" }));
+  byId("graph-open-passage").addEventListener("click", () => byId(mode === "trained" ? "trained-probe" : "inspect")
+    .scrollIntoView({ block: "start", behavior: motion.matches ? "auto" : "smooth" }));
   find.addEventListener("input", renderFind);
   find.addEventListener("keydown", event => {
     if (event.key !== "Enter" || !searchMatches.length) return;
@@ -569,7 +691,10 @@
   byId("research-close").addEventListener("click", () => research.close());
   window.addEventListener("hashchange", openHash);
   syncPause();
-  load(initial.id, false).then(() => {
-    if (archivePanes.some(pane => pane.id === location.hash.slice(1))) openHash();
+  const initialStep = ["run-corpus", "run-pool", "run-inputs", "run-models", "run-ranking"].indexOf(archiveRequested);
+  const startMode = steps.includes(archiveRequested) ? "walk" : ["links", "shortlist"].includes(archiveRequested) ? "explore" : "trained";
+  switchMode(startMode, params.get("case") ?? (startMode === "trained" ? undefined : initial.id),
+    startMode === "walk" ? archiveRequested : Math.max(initialStep, 0), false).then(() => {
+    if (archivePanes.some(pane => pane.id === archiveRequested)) openArchive(archiveRequested);
   });
 })();

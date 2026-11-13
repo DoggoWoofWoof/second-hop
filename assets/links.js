@@ -6,6 +6,7 @@
     R: { label: "Title rule", title: "Title rules", color: "#ed9ebd", dash: [7, 4], length: 31 },
     N: { label: "Shared name", title: "Shared names", color: "#c5d990", dash: [2, 5], length: 37 },
     K: { label: "Semantic link", title: "Semantic links", color: "#bbabff", dash: [8, 3, 2, 3], length: 46 },
+    T: { label: "Knowledge-base relation", title: "Movie relations", color: "#8cdbdf", dash: [], length: 27 },
   };
 
   const articlePaths = new Map([

@@ -20,5 +20,14 @@ MuSiQue — Harsh Trivedi, Niranjan Balasubramanian, Tushar Khot and Ashish Sabh
 https://github.com/StonyBrookNLP/musique
 https://github.com/StonyBrookNLP/musique/blob/main/LICENSE
 
-Each JSON file selects the passages reachable in one Second Hop example and
-adds the matching names verified against the recorded named-entity link weights.
+MetaQA — Yuyu Zhang, Hanjun Dai, Zornitsa Kozareva, Alexander J. Smola and Le Song.
+https://github.com/yuyuz/MetaQA
+https://github.com/yuyuz/MetaQA/blob/master/LICENSE.txt
+https://creativecommons.org/licenses/by/3.0/
+The demo uses the canonical movie entity names, selected development questions
+and answers, and a subset of the movie relations. It normalizes presentation
+capitalization and replaces benchmark markup with clickable entities.
+
+The trained run uses benchmark corpus titles, saved passage text and the subset
+of edges used by each recorded candidate pool. Where names can be recovered,
+the shared names are checked against the original named-entity link weights.

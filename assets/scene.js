@@ -54,6 +54,10 @@
     let forceFit = true;
     let hits = [];
     let strokes = [];
+    let sky = null;
+    let skyExit = null;
+    let linkTypes = null;
+    const skyRadius = 670;
 
     function schedule() {
       if (!frame && visible) frame = requestAnimationFrame(draw);
@@ -63,7 +67,7 @@
       if (fresh) {
         layout.clear();
         nodes = links = departing = fading = [];
-        selected = signal = hover = destination = null;
+        selected = signal = hover = destination = sky = skyExit = linkTypes = null;
         camera = { x: 0, y: 0, scale: 1 };
         hasFit = false;
         forceFit = true;
@@ -119,6 +123,11 @@
 
     function fit(animated = true) {
       if (!width || !height || !nodes.length) return;
+      if (sky) {
+        aim({ x: 0, y: 0, scale: Math.min(width / 1180, height / 815) }, animated);
+        hasFit = true;
+        return;
+      }
       let left = Infinity, top = Infinity, right = -Infinity, bottom = -Infinity;
       for (const node of nodes) {
         left = Math.min(left, node.x);
@@ -140,16 +149,86 @@
       schedule();
     }
 
-    function locate(id) {
-      const node = layout.get(id);
-      if (!node || !nodes.includes(node)) return;
+    function locate(id, minScale = .9) {
+      const active = layout.get(id);
+      const node = active && nodes.includes(active) ? active : sky?.byId.get(id);
+      if (!node) return;
       forceFit = false;
-      aim({ x: node.x, y: node.y, scale: Math.max(camera.scale, .9) });
+      aim({ x: node.x, y: node.y, scale: Math.max(camera.scale, minScale) });
     }
 
-    function setFocus(id, routes) {
+    function setFocus(id, routes = new Map()) {
       selected = id == null ? null : { id, routes };
       schedule();
+    }
+
+    function setLinkTypes(types) {
+      linkTypes = types;
+      hover = null;
+      schedule();
+    }
+
+    function setCorpus(entries, poolIds) {
+      if (!entries) {
+        if (sky && !motion.matches) skyExit = { ...sky, time: performance.now() };
+        sky = null;
+        schedule();
+        return;
+      }
+      const tile = document.createElement("canvas");
+      tile.width = tile.height = skyRadius * 2;
+      const ink = tile.getContext("2d");
+      ink.fillStyle = "#c6aaff";
+      const dots = [];
+      const byId = new Map();
+      function unit(i) { return (Math.imul(i ^ (i >>> 13), 0x5bd1e995) >>> 0) / 4294967296; }
+      for (const [id, title] of entries) {
+        if (poolIds.has(id)) continue;
+        const r = skyRadius * (.12 + .86 * unit(id + 37) ** .72);
+        const angle = (id % 5) * Math.PI * .4 + r * .0068 + (unit(id * 17 + 901) - .5) * (2 - r / skyRadius);
+        const dot = { id, title, x: r * Math.cos(angle), y: r * Math.sin(angle) * .56 };
+        dots.push(dot);
+        byId.set(id, dot);
+        const size = id % 79 === 0 ? 2.6 : 1.65;
+        ink.globalAlpha = id % 79 === 0 ? .53 : .14 + (id % 7) * .025;
+        ink.fillRect(skyRadius + dot.x, skyRadius + dot.y, size, size);
+      }
+      sky = { tile, byId, dots: d3.quadtree(dots, node => node.x, node => node.y), start: performance.now() };
+      skyExit = null;
+      schedule();
+    }
+
+    function paintCorpus(now) {
+      const cloud = sky ?? skyExit;
+      if (!cloud) return;
+      const fade = sky ? (motion.matches ? 1 : clamp((now - sky.start) / 540, 0, 1))
+        : 1 - clamp((now - skyExit.time) / 880, 0, 1);
+      if (!fade && !sky) { skyExit = null; return; }
+      const origin = projection({ x: 0, y: 0 });
+      const spread = sky ? 1 : 1 + (1 - fade) * .18;
+      const radius = skyRadius * camera.scale * spread;
+      ctx.globalAlpha = fade;
+      ctx.drawImage(cloud.tile, origin.x - radius, origin.y - radius, radius * 2, radius * 2);
+      const dot = sky?.byId.get(hover?.id ?? selected?.id);
+      if (dot) {
+        const p = projection(dot);
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = gold;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 4, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.font = "600 12px Inter, system-ui, sans-serif";
+        ctx.textAlign = "left";
+        ctx.lineWidth = 4;
+        ctx.strokeStyle = "#170f21";
+        const label = dot.title.length > 36 ? dot.title.slice(0, 34) + "…" : dot.title;
+        const x = clamp(p.x + 10, 6, Math.max(6, width - ctx.measureText(label).width - 8));
+        const y = clamp(p.y - 7, 16, height - 8);
+        ctx.strokeText(label, x, y);
+        ctx.fillStyle = "#f5effb";
+        ctx.fillText(label, x, y);
+      }
+      ctx.globalAlpha = 1;
     }
 
     function setSignal(spec) {
@@ -188,7 +267,7 @@
         return;
       }
       lastPaint = now;
-      const stepMs = nodes.length > 900 ? 32 : 15;
+      const stepMs = nodes.length > 900 ? 44 : 15;
       if (!paused && now - lastTick >= stepMs) {
         simulation.tick();
         lastTick = now;
@@ -205,9 +284,10 @@
       ctx.clearRect(0, 0, width, height);
       fading = fading.filter(link => now - link.exit < 620);
       departing = departing.filter(node => now - node.exit < 820);
+      paintCorpus(now);
       paintLinks(now);
       paintNodes(now);
-      if (!paused || destination || departing.length || fading.length || nodes.some(node => now - node.enter < 520) ||
+      if (!paused || destination || departing.length || fading.length || skyExit || (sky && now - sky.start < 550) || nodes.some(node => now - node.enter < 520) ||
           (signal && now - signal.start < 720 && !motion.matches)) schedule();
     }
 
@@ -249,8 +329,9 @@
         if ((a.x < -10 && b.x < -10) || (a.x > width + 10 && b.x > width + 10) ||
             (a.y < -10 && b.y < -10) || (a.y > height + 10 && b.y > height + 10)) continue;
         if (focus) { highlightedIds.add(link.source.id); highlightedIds.add(link.target.id); }
-        for (const [index, type] of link.types.entries()) {
-          const mid = curve(a, b, index, link.types.length);
+        const shown = linkTypes ? link.types.filter(type => linkTypes.has(type)) : link.types;
+        for (const [index, type] of shown.entries()) {
+          const mid = curve(a, b, index, shown.length);
           const chosen = focus?.has(type);
           const hot = chosen || Boolean(transfer) || (hovered && (!hover.edge || hover.type === type));
           const edge = { edge: link.edge, type, a, mid, b, hot, featured: spotlight || hot };
@@ -258,14 +339,14 @@
             : link.enter ? clamp((now - link.enter) / 430, 0, 1) : 1;
           if (!link.exit) strokes.push(edge);
           if (hot || (spotlight && !selected) || transition < 1) {
-            const alpha = hot ? .94 : spotlight && !selected ? .52 : selected ? .055 : .22;
+            const alpha = hot ? .94 : spotlight && !selected ? .52 : selected || sky ? .055 : .22;
             front.push({ ...edge, alpha: alpha * transition, sparkle: chosen && !paused,
               flow: index === 0 ? transfer : null, forward: transfer?.from === link.source.id });
           } else drawCurve(pools.get(type), a, mid, b);
         }
       }
       for (const [type, path] of pools) {
-        ctx.globalAlpha = selected || signal ? .063 : count > 2500 ? .10 : .23;
+        ctx.globalAlpha = selected || signal || sky ? .063 : count > 2500 ? .10 : .23;
         ctx.lineWidth = .83;
         ctx.strokeStyle = families[type].color;
         ctx.setLineDash(count > 2200 ? [] : families[type].dash);
@@ -321,7 +402,7 @@
         const intensity = Math.sqrt(Math.max(0, value));
         const r = ((current ? 5.8 : node.seed ? 4.9 : node.passage.supporting ? 4.3 : compact ? 1.65 : 2.35) + intensity * 3.6) * clamp(Math.sqrt(camera.scale), .72, 1.45);
         const color = node.seed || intensity > .6 ? gold : violet;
-        ctx.globalAlpha = fade * (bright ? 1 : signal ? .24 + intensity * .75 : selected ? .27 : node.highlight ? .97 : .67);
+        ctx.globalAlpha = fade * (bright ? 1 : signal ? .24 + intensity * .75 : selected ? .27 : node.highlight ? .97 : sky ? .27 : .67);
         ctx.fillStyle = color;
         ctx.beginPath();
         ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
@@ -396,7 +477,10 @@
         if (distance < best) { best = distance; edge = stroke; }
         if (stroke.featured && distance < strongDistance) { strongDistance = distance; strong = stroke; }
       }
-      return strong ?? edge;
+      if (strong || edge) return strong ?? edge;
+      const dot = sky?.dots.find(camera.x + (p.x - width * .5) / camera.scale,
+        camera.y + (p.y - height * .53) / camera.scale, 4 / camera.scale);
+      return dot && { id: dot.id, corpus: true };
     }
 
     function eventPoint(event) {
@@ -460,7 +544,7 @@
       canvas.removeAttribute("data-dragging");
       if (moved && node && !node.pinned) node.fx = node.fy = null;
       if (click && !moved) {
-        if (target?.node) handlers.node(target.id);
+        if (target?.node || target?.corpus) handlers.node(target.id);
         else if (target?.edge) handlers.edge(target.edge, target.type);
         else handlers.clear();
       }
@@ -508,7 +592,7 @@
     document.fonts.ready.then(schedule);
 
     return {
-      show, setFocus, setSignal, locate, pin, isPinned,
+      show, setFocus, setSignal, setCorpus, setLinkTypes, locate, pin, isPinned, fit,
       pause: value => { paused = value; schedule(); },
     };
   }

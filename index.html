@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="A visual workbench for multi-hop retrieval. Trace passage links, shrink candidate pools, and replay real ranking and timing experiments.">
+  <meta name="description" content="A visual workbench for multi-hop retrieval. Explore a floating graph, build a candidate pool, and compare trained MLP and GNN rankings.">
   <meta name="robots" content="noindex, nofollow">
   <meta name="theme-color" content="#100e19">
   <meta name="color-scheme" content="dark">
@@ -16,16 +16,19 @@
   <link rel="stylesheet" href="assets/experiments.css?v=4">
   <link rel="stylesheet" href="assets/galaxy.css?v=3">
   <link rel="stylesheet" href="assets/pipeline.css?v=2">
+  <link rel="stylesheet" href="assets/trained.css?v=1">
   <script defer src="assets/examples.js"></script>
   <script defer src="assets/pipeline-data.js"></script>
   <script defer src="assets/retrieval.js?v=4"></script>
   <script defer src="assets/vendor/d3.min.js"></script>
-  <script defer src="assets/links.js?v=6"></script>
-  <script defer src="assets/scene.js?v=6"></script>
+  <script defer src="assets/links.js?v=7"></script>
+  <script defer src="assets/scene.js?v=7"></script>
   <script defer src="assets/simulation.js?v=2"></script>
   <script defer src="assets/pipeline-ui.js?v=2"></script>
   <script defer src="assets/experiments.js?v=4"></script>
-  <script defer src="assets/app.js?v=10"></script>
+  <script defer src="assets/trained-data.js?v=1"></script>
+  <script defer src="assets/trained-ui.js?v=1"></script>
+  <script defer src="assets/app.js?v=11"></script>
 </head>
 <body id="top">
   <a class="skip-link" href="#main">Skip to content</a>
@@ -60,7 +63,24 @@
       </div>
     </header>
     <section class="galaxy-lab" id="pipeline" aria-label="Interactive passage graph" aria-busy="true">
-      <p class="galaxy-question" id="flow-question"></p>
+      <div class="lab-intro">
+        <p class="galaxy-question" id="flow-question"></p>
+        <span id="question-tag" class="question-tag" hidden></span>
+      </div>
+      <div class="lab-route" id="lab-route">
+        <div class="lab-modes" role="group" aria-label="Graph experience">
+          <button type="button" id="trained-tab" aria-pressed="true" aria-controls="trained-panel">Trained run</button>
+          <button type="button" id="explore-tab" aria-pressed="false" aria-controls="inspect">Explore links</button>
+          <button type="button" id="walk-tab" aria-pressed="false" aria-controls="run-panel">Walk lab</button>
+        </div>
+        <nav class="trained-steps" id="trained-steps" aria-label="Trained run steps">
+          <button type="button" data-trained-step="0" aria-current="step"><span>01</span> Corpus</button>
+          <button type="button" data-trained-step="1"><span>02</span> Pool</button>
+          <button type="button" data-trained-step="2"><span>03</span> Inputs</button>
+          <button type="button" data-trained-step="3"><span>04</span> Models</button>
+          <button type="button" data-trained-step="4"><span>05</span> Ranking</button>
+        </nav>
+      </div>
       <p id="graph-loading" class="galaxy-loading" role="status">Loading the passage graph…</p>
       <div id="graph-error" class="galaxy-loading" hidden>
         <p>The graph couldn’t load.</p><button type="button" class="ghost-button" id="graph-retry">Try again</button>
@@ -73,7 +93,6 @@
               <p id="graph-scope"></p>
             </div>
             <div class="galaxy-actions">
-              <button type="button" class="ghost-button" id="graph-pipeline" aria-controls="run-panel">Run pipeline →</button>
               <button type="button" class="ghost-button" id="graph-pause" aria-pressed="false">Pause</button>
               <button type="button" class="galaxy-primary" id="graph-shrink" aria-pressed="false">Shrink pool <span aria-hidden="true">↘</span></button>
             </div>
@@ -83,7 +102,7 @@
             <canvas id="pipeline-canvas" aria-hidden="true"></canvas>
             <p class="sr-only" id="scene-keys">Arrow keys pan. Plus and minus zoom. Find a passage in the inspector to explore the graph with the keyboard.</p>
             <dl class="galaxy-stats" aria-label="Visible graph statistics">
-              <div><dt>Passages</dt><dd id="graph-nodes">—</dd></div>
+              <div><dt id="graph-unit">Passages</dt><dd id="graph-nodes">—</dd></div>
               <div><dt>Connections</dt><dd id="graph-edges">—</dd></div>
               <div><dt title="Share of possible passage pairs joined by at least one enabled link">Link density</dt><dd id="graph-density">—</dd></div>
             </dl>
@@ -103,10 +122,17 @@
         </figure>
 
         <aside class="galaxy-inspector" aria-label="Passages and search controls">
-          <nav class="inspector-tabs" aria-label="Graph panels">
-            <button type="button" data-panel="inspect" aria-controls="inspect" aria-pressed="true">Inspect</button>
-            <button type="button" id="run-tab" aria-controls="run-panel" aria-pressed="false">Pipeline</button>
-          </nav>
+          <div class="trained-panel" id="trained-panel" aria-label="Trained run" hidden>
+            <header class="trained-head" id="trained-head"></header>
+            <div class="trained-content" id="trained-content"></div>
+            <div class="trained-probe" id="trained-probe" hidden></div>
+            <footer class="trained-transport">
+              <button type="button" id="trained-back" class="ghost-button">← Back</button>
+              <a class="section-link trained-to-graph" href="#scene-field">Graph ↑</a>
+              <button type="button" id="trained-next" class="galaxy-primary">Build pool ↘</button>
+            </footer>
+          </div>
+          <div class="explorer-scroll" id="explorer-panel">
           <section class="inspector-panel" id="inspect" aria-label="Inspect a passage">
             <label class="galaxy-search" for="passage-find">Find a passage<input id="passage-find" type="search" autocomplete="off" placeholder="Search the visible cluster"></label>
             <ul class="passage-matches" id="passage-matches" hidden></ul>
@@ -219,6 +245,7 @@
               <a class="section-link" href="#recorded" data-open-research>Compare saved model results ↗</a>
             </section>
           </div>
+          </div>
         </aside>
       </div>
       <noscript><p class="galaxy-loading">Enable JavaScript to explore the passage graph.</p></noscript>
@@ -294,8 +321,8 @@
       <h2 id="method-title">Data and methods</h2>
       <div class="method-grid">
         <article><h3>First search</h3><p>Dense and sparse retrievers order the passages by meaning and words. <a href="https://doi.org/10.1145/1571941.1572114">Reciprocal rank fusion</a> combines those orders.</p></article>
-        <article><h3>Pool replay</h3><p>Explore the neighbours of the first 25, 100, or 200 search hits. The browser can keep direct neighbours or combine a 50-round PPR order with question cosine. The research shortlist uses local push walks, semantic rank fusion, and a rank mass cutoff. Link density counts each connected pair once.</p></article>
-        <article><h3>Model simulations</h3><p>The browser scores seven example signals with small, fixed demonstration weights. The MLP reads each row independently; the GNN adds three rounds of neighbour updates. The saved results come from trained models on their original research pools.</p></article>
+        <article><h3>Candidate pools</h3><p>The trained run replays each dataset’s frozen search budget and bounded seed expansion. The Walk lab lets you change the graph and restart settings in a separate PageRank experiment.</p></article>
+        <article><h3>Trained comparisons</h3><p>MLP (zrc) and GNN (zsp) are the J5 p@swa checkpoints. Each scores every candidate in the same pool. The GNN adds one learned correction from the scores of its neighbours.</p></article>
       </div>
       <div class="scale-band">
         <div><h3>At full-corpus scale</h3><p>Recorded development run for <span id="scale-dataset">2Wiki</span>.</p></div>
@@ -304,7 +331,7 @@
       </div>
       <details class="method-details">
         <summary>Benchmark sources and link definitions</summary>
-        <p>The six questions come from development snapshots of <a href="https://aclanthology.org/2020.coling-main.580/">2WikiMultihopQA</a>, <a href="https://hotpotqa.github.io/">HotpotQA</a>, and <a href="https://aclanthology.org/2022.tacl-1.31/">MuSiQue</a>. <a href="https://proceedings.mlr.press/v267/gutierrez25a.html">The HippoRAG 2 paper</a> documents the passage collections. The full-corpus coverage and timing charts each link to their own larger development runs.</p>
+        <p>The questions come from development snapshots of <a href="https://aclanthology.org/2020.coling-main.580/">2WikiMultihopQA</a>, <a href="https://hotpotqa.github.io/">HotpotQA</a>, <a href="https://aclanthology.org/2022.tacl-1.31/">MuSiQue</a>, and <a href="https://github.com/yuyuz/MetaQA">MetaQA</a>. <a href="https://proceedings.mlr.press/v267/gutierrez25a.html">The HippoRAG 2 paper</a> documents the passage collections. The full-corpus coverage and timing charts each link to their own larger development runs.</p>
         <dl>
           <div><dt>Hyperlinks</dt><dd>Article links supplied by the benchmark corpus.</dd></div>
           <div><dt>Title rules</dt><dd>Passages that mention another passage’s title or come from the same article.</dd></div>
